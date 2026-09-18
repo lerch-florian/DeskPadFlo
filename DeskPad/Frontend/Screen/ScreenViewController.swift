@@ -83,6 +83,7 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
             view.window?.setContentSize(viewData.resolution)
             view.window?.contentAspectRatio = viewData.resolution
             view.window?.center()
+            dispatchWindowContentFrame()
             let stream = CGDisplayStream(
                 dispatchQueueDisplay: display.displayID,
                 outputWidth: Int(viewData.resolution.width * viewData.scaleFactor),
@@ -101,6 +102,20 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
             self.stream = stream
             stream?.start()
         }
+    }
+
+    func windowDidMove(_: Notification) {
+        dispatchWindowContentFrame()
+    }
+
+    func windowDidResize(_: Notification) {
+        dispatchWindowContentFrame()
+    }
+
+    private func dispatchWindowContentFrame() {
+        guard let window = view.window else { return }
+        let contentFrame = window.contentRect(forFrameRect: window.frame)
+        store.dispatch(PreviewWindowAction.setContentFrame(contentFrame))
     }
 
     func windowWillResize(_ window: NSWindow, to frameSize: NSSize) -> NSSize {

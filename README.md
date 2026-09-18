@@ -27,6 +27,8 @@ You can change the display resolution through the system preferences and the app
 
 Whenever you move your mouse cursor to the virtual display, DeskPad will highlight its title bar in blue and move the application window to the front to let you know where you are.
 
+Moving the cursor to an edge of the virtual display warps it back out to the matching point on the DeskPad window's edge on your physical screen, so the cursor never gets stuck inside the virtual display — you can move it back and forth across the boundary like any other monitor edge.
+
 <h3 align="center">
   <a href="https://github.com/Stengo/DeskPad/blob/main/demonstration.gif">
   <img src="https://github.com/Stengo/DeskPad/blob/main/demonstration.gif?raw=true" alt="DeskPad Demonstration">
