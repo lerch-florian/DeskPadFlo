@@ -17,6 +17,7 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
     private var isWindowHighlighted = false
     private var previousResolution: CGSize?
     private var previousScaleFactor: CGFloat?
+    private var hasSizedWindowInitially = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -37,27 +38,23 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
 
         let settings = CGVirtualDisplaySettings()
         settings.hiDPI = 1
-        settings.modes = [
-            // 32:9
-            CGVirtualDisplayMode(width: 5120, height: 1440, refreshRate: 60),
-            // 21:9 (239:100, 12:5)
-            CGVirtualDisplayMode(width: 5120, height: 2160, refreshRate: 60),
-            CGVirtualDisplayMode(width: 3840, height: 1600, refreshRate: 60),
-            CGVirtualDisplayMode(width: 3440, height: 1440, refreshRate: 60),
-            // 16:9
-            CGVirtualDisplayMode(width: 3840, height: 2160, refreshRate: 60),
-            CGVirtualDisplayMode(width: 2560, height: 1440, refreshRate: 60),
-            CGVirtualDisplayMode(width: 1920, height: 1080, refreshRate: 60),
-            CGVirtualDisplayMode(width: 1600, height: 900, refreshRate: 60),
-            CGVirtualDisplayMode(width: 1366, height: 768, refreshRate: 60),
-            CGVirtualDisplayMode(width: 1280, height: 720, refreshRate: 60),
-            // 16:10
-            CGVirtualDisplayMode(width: 2560, height: 1600, refreshRate: 60),
-            CGVirtualDisplayMode(width: 1920, height: 1200, refreshRate: 60),
-            CGVirtualDisplayMode(width: 1680, height: 1050, refreshRate: 60),
-            CGVirtualDisplayMode(width: 1440, height: 900, refreshRate: 60),
-            CGVirtualDisplayMode(width: 1280, height: 800, refreshRate: 60),
-        ]
+        var modes = availableResolutions.map {
+            CGVirtualDisplayMode(width: UInt($0.size.width), height: UInt($0.size.height), refreshRate: 60)
+        }
+
+        // Make sure the built-in display's exact resolution is selectable, so we can
+        // default the virtual display to match it (see ScreenConfigurationSideEffect).
+        if
+            let builtInPointSize = NSScreen.builtIn?.frame.size,
+            !modes.contains(where: { $0.width == UInt(builtInPointSize.width) && $0.height == UInt(builtInPointSize.height) })
+        {
+            modes.insert(
+                CGVirtualDisplayMode(width: UInt(builtInPointSize.width), height: UInt(builtInPointSize.height), refreshRate: 60),
+                at: 0
+            )
+        }
+
+        settings.modes = modes
         display.apply(settings)
     }
 
@@ -80,7 +77,12 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
             previousResolution = viewData.resolution
             previousScaleFactor = viewData.scaleFactor
             stream = nil
-            view.window?.setContentSize(viewData.resolution)
+            if hasSizedWindowInitially == false {
+                hasSizedWindowInitially = true
+                view.window?.setContentSize(quarterScreenSize(fitting: viewData.resolution))
+            } else {
+                view.window?.setContentSize(viewData.resolution)
+            }
             view.window?.contentAspectRatio = viewData.resolution
             view.window?.center()
             dispatchWindowContentFrame()
@@ -110,6 +112,18 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
 
     func windowDidResize(_: Notification) {
         dispatchWindowContentFrame()
+    }
+
+    // Sizes the window to fit within a quarter of the screen's visible area on
+    // first launch, preserving the virtual display's aspect ratio, rather than
+    // opening at the resolution's full point size.
+    private func quarterScreenSize(fitting resolution: CGSize) -> CGSize {
+        guard let visibleFrame = (view.window?.screen ?? NSScreen.main)?.visibleFrame else {
+            return resolution
+        }
+        let maxSize = CGSize(width: visibleFrame.width / 2, height: visibleFrame.height / 2)
+        let scale = min(maxSize.width / resolution.width, maxSize.height / resolution.height)
+        return CGSize(width: resolution.width * scale, height: resolution.height * scale)
     }
 
     private func dispatchWindowContentFrame() {
