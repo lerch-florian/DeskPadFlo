@@ -1,3 +1,4 @@
 BuildTools/.build
 BuildTools/.swiftpm
 xcuserdata/
+.DS_Store

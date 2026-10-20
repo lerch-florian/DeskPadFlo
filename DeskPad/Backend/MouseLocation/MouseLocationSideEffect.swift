@@ -19,6 +19,16 @@ private var skipEntryCheckOnce = false
 // skipping over any such band entirely.
 private var wasInsideWindowLastTick = false
 
+// Tracks whether the cursor was on the virtual display on the previous tick. If the
+// virtual display happens to be arranged directly adjacent to a real display (which
+// is exactly where macOS places it by default), moving off that shared edge lets the
+// OS's own seamless cursor continuation carry the cursor onto the real display in a
+// single tick — there's no gap to clamp it at the boundary the way an edge with no
+// arranged neighbor does, so requiring the cursor to currently still be inside the
+// virtual display's bounds misses it entirely. Combined with `wasOnVirtualLastTick`,
+// exit still fires correctly even after that continuation has already happened.
+private var wasOnVirtualLastTick = false
+
 enum MouseLocationAction: Action {
     case located(isWithinScreen: Bool)
     case requestMove(toPoint: NSPoint)
@@ -82,11 +92,25 @@ func mouseEdgeCrossingSideEffect() -> SideEffect {
             let wasInsideWindow = wasInsideWindowLastTick
             wasInsideWindowLastTick = isInsideWindow
 
+            let isOnVirtual = virtualFrame.contains(mouseLocation)
+            let wasOnVirtual = wasOnVirtualLastTick
+            wasOnVirtualLastTick = isOnVirtual
+
+            // Near the shared edge (within margin) covers the case where the cursor is
+            // still measurably inside the virtual display, waiting to be caught by
+            // `exitTarget`'s own edge checks below; the wider `expandedVirtualFrame`
+            // check additionally covers the case where it has *already* continued onto
+            // an adjacent real display in a single tick (see wasOnVirtualLastTick above).
+            // Requiring wasOnVirtual as well avoids misfiring for a cursor that was
+            // simply resting near that boundary on the real display all along.
+            let expandedVirtualFrame = virtualFrame.insetBy(dx: -edgeMargin, dy: -edgeMargin)
+
             if skipExitCheckOnce {
                 skipExitCheckOnce = false
             } else if
                 behavior.jumpOutEnabled,
-                virtualFrame.contains(mouseLocation),
+                wasOnVirtual,
+                expandedVirtualFrame.contains(mouseLocation),
                 let target = exitTarget(mouseLocation: mouseLocation, virtualFrame: virtualFrame, contentFrame: contentFrame)
             {
                 warpCursor(to: target)
@@ -107,9 +131,11 @@ func mouseEdgeCrossingSideEffect() -> SideEffect {
 
 // Point (in the preview window's global screen coordinate space) mirroring where the
 // cursor sits along the virtual display's edge, or nil if it isn't currently near one.
+// mouseLocation may be slightly outside virtualFrame (see expandedVirtualFrame above),
+// so the fractions are clamped to stay within contentFrame.
 private func exitTarget(mouseLocation: NSPoint, virtualFrame: CGRect, contentFrame: CGRect) -> CGPoint? {
-    let fractionX = (mouseLocation.x - virtualFrame.minX) / virtualFrame.width
-    let fractionY = (mouseLocation.y - virtualFrame.minY) / virtualFrame.height
+    let fractionX = min(max((mouseLocation.x - virtualFrame.minX) / virtualFrame.width, 0), 1)
+    let fractionY = min(max((mouseLocation.y - virtualFrame.minY) / virtualFrame.height, 0), 1)
 
     if mouseLocation.x - virtualFrame.minX <= edgeMargin {
         return CGPoint(x: contentFrame.minX + edgeMargin, y: contentFrame.minY + fractionY * contentFrame.height)
