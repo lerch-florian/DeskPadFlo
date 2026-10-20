@@ -28,6 +28,20 @@ under `DeskPad/Backend/`, one subfolder per slice:
     because the OS clamps cursor motion at a real display's own bounds when
     there's no arranged neighbor beyond it, so the cursor lingers right at
     the edge across several polling ticks.
+  - Exit also fires on an on→off *transition*: when the virtual display is
+    arranged next to a real one, a fast movement carries the cursor across the
+    shared edge and far onto the real display within one tick
+    (`crossingExitTarget` intersects the segment from the last on-display
+    position to the current one with the display's bounds to find the real
+    crossing point). After any exit-warp `lastVirtualLocation` is cleared,
+    otherwise the next tick sees the warp itself as a second exit and re-warps
+    to the wrong edge. On-display checks must use a closed interval: the
+    cursor clamped at the top/right edge reports exactly `maxY`/`maxX`, which
+    `CGRect.contains` (half-open) treats as outside. In a corner the nearest
+    edge wins.
+  - Entry only counts if the preview window is the topmost window under the
+    cursor (`isPreviewWindowVisible`, via `CGWindowListCopyWindowInfo`, only
+    evaluated on a potential entry — it's too slow to run at 60Hz).
   - Entry fires on a genuine outside→inside transition into the preview
     window's content frame (tracked tick-to-tick), *not* proximity to its
     edge — nothing clamps cursor motion at an ordinary window's boundary, so
@@ -41,7 +55,13 @@ under `DeskPad/Backend/`, one subfolder per slice:
     just inside the window's edge, which would otherwise immediately satisfy
     entry's trigger condition (and vice versa for entry landing near the
     virtual display's edge), causing an infinite back-and-forth when both
-    directions are enabled at once.
+    directions are enabled at once. Since an entry lands right at the display
+    edge (still inside the exit margin on the next tick), `exitArmed` also
+    keeps exit disabled after an entry until the cursor is `exitRearmDistance`
+    clear of every edge.
+  - Every jump is a cursor warp, and macOS freezes hardware mouse input for
+    0.25s after one by default; the cursor visibly stuck. Fixed by setting
+    `localEventsSuppressionInterval = 0` on a retained `CGEventSource`.
 - `MouseEdgeBehavior/` — two independent booleans, `jumpOutEnabled` (default
   `true`, preserves original behavior) and `jumpInEnabled` (default `false`,
   since it's new — click-to-enter always works regardless of this toggle).

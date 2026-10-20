@@ -3,6 +3,7 @@ import ReSwift
 
 private var timer: Timer?
 private var edgeCrossingTimer: Timer?
+private var warpEventSource: CGEventSource?
 private let edgeMargin: CGFloat = 2
 
 // One-shot flags so an exit-warp landing near the window's edge doesn't
@@ -10,6 +11,15 @@ private let edgeMargin: CGFloat = 2
 // versa, when both behaviors are enabled at the same time.
 private var skipExitCheckOnce = false
 private var skipEntryCheckOnce = false
+
+// Entering the virtual display lands the cursor right at its edge (the window's edge
+// maps to the display's edge), which is inside the exit margin. Skipping one tick
+// isn't enough — the cursor is still there on the next one — so exit would fire
+// immediately and the cursor would bounce in and out, appearing to stick. After an
+// entry, exit stays disarmed until the cursor has moved `exitRearmDistance` clear of
+// every edge (or left the display).
+private var exitArmed = true
+private let exitRearmDistance: CGFloat = 12
 
 // Tracks whether the cursor was over the preview window on the previous tick, so
 // entry fires on a genuine outside→inside transition rather than requiring the
@@ -19,15 +29,15 @@ private var skipEntryCheckOnce = false
 // skipping over any such band entirely.
 private var wasInsideWindowLastTick = false
 
-// Tracks whether the cursor was on the virtual display on the previous tick. If the
-// virtual display happens to be arranged directly adjacent to a real display (which
-// is exactly where macOS places it by default), moving off that shared edge lets the
-// OS's own seamless cursor continuation carry the cursor onto the real display in a
-// single tick — there's no gap to clamp it at the boundary the way an edge with no
-// arranged neighbor does, so requiring the cursor to currently still be inside the
-// virtual display's bounds misses it entirely. Combined with `wasOnVirtualLastTick`,
-// exit still fires correctly even after that continuation has already happened.
-private var wasOnVirtualLastTick = false
+// Last cursor position observed while on the virtual display, or nil if the cursor
+// wasn't on it on the previous tick. If the virtual display is arranged directly
+// next to a real display, a fast mouse movement can carry the cursor across the
+// shared edge and far onto the real display within a single polling tick, so the
+// exit point can't be derived from the cursor's *current* position (which could be
+// anywhere on the real display). Instead, exit is detected as an on→off transition
+// and the crossing point is computed from the segment between the last on-display
+// position and the current one.
+private var lastVirtualLocation: NSPoint?
 
 enum MouseLocationAction: Action {
     case located(isWithinScreen: Bool)
@@ -66,6 +76,12 @@ func mouseEdgeCrossingSideEffect() -> SideEffect {
     return { _, dispatch, getState in
         guard edgeCrossingTimer == nil else { return }
 
+        // By default macOS suppresses hardware mouse events for 0.25s after any cursor
+        // warp, freezing the cursor for a moment. Every jump here is a warp, so turn
+        // that suppression off.
+        warpEventSource = CGEventSource(stateID: .combinedSessionState)
+        warpEventSource?.localEventsSuppressionInterval = 0
+
         edgeCrossingTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
             guard let state = getState() else { return }
 
@@ -88,34 +104,49 @@ func mouseEdgeCrossingSideEffect() -> SideEffect {
 
             let mouseLocation = NSEvent.mouseLocation
 
-            let isInsideWindow = contentFrame.contains(mouseLocation)
+            // Inside the window's frame *and* the window is actually what's visible
+            // there, so a window covering the preview doesn't get its cursor yanked away.
+            // Visibility is only checked on a potential entry (not every tick while already
+            // inside): querying the window list at 60Hz is slow enough to make the cursor stutter.
             let wasInsideWindow = wasInsideWindowLastTick
+            let isInsideWindow = contentFrame.contains(mouseLocation)
+                && (wasInsideWindow || isPreviewWindowVisible(at: mouseLocation))
             wasInsideWindowLastTick = isInsideWindow
 
-            let isOnVirtual = virtualFrame.contains(mouseLocation)
-            let wasOnVirtual = wasOnVirtualLastTick
-            wasOnVirtualLastTick = isOnVirtual
+            // CGRect.contains is half-open (excludes maxX/maxY), but a cursor clamped at
+            // the top or right edge of a display reports exactly maxY/maxX — so use a
+            // closed-interval check or the cursor would count as already off the display.
+            let isOnVirtual = (virtualFrame.minX ... virtualFrame.maxX).contains(mouseLocation.x)
+                && (virtualFrame.minY ... virtualFrame.maxY).contains(mouseLocation.y)
+            let previousVirtualLocation = lastVirtualLocation
+            lastVirtualLocation = isOnVirtual ? mouseLocation : nil
 
-            // Near the shared edge (within margin) covers the case where the cursor is
-            // still measurably inside the virtual display, waiting to be caught by
-            // `exitTarget`'s own edge checks below; the wider `expandedVirtualFrame`
-            // check additionally covers the case where it has *already* continued onto
-            // an adjacent real display in a single tick (see wasOnVirtualLastTick above).
-            // Requiring wasOnVirtual as well avoids misfiring for a cursor that was
-            // simply resting near that boundary on the real display all along.
-            let expandedVirtualFrame = virtualFrame.insetBy(dx: -edgeMargin, dy: -edgeMargin)
+            // Re-arm exit once the cursor has moved clear of the display's edges (or left
+            // the display entirely), see exitArmed.
+            if isOnVirtual == false || distanceToNearestEdge(mouseLocation, in: virtualFrame) > exitRearmDistance {
+                exitArmed = true
+            }
 
             if skipExitCheckOnce {
                 skipExitCheckOnce = false
-            } else if
-                behavior.jumpOutEnabled,
-                wasOnVirtual,
-                expandedVirtualFrame.contains(mouseLocation),
-                let target = exitTarget(mouseLocation: mouseLocation, virtualFrame: virtualFrame, contentFrame: contentFrame)
-            {
-                warpCursor(to: target)
-                skipEntryCheckOnce = true
-                return
+            } else if behavior.jumpOutEnabled {
+                var target: CGPoint?
+                if isOnVirtual {
+                    // Still on the display: the OS clamps motion at an unneighbored edge,
+                    // so the cursor lingers within the margin across several ticks.
+                    target = exitArmed ? exitTarget(mouseLocation: mouseLocation, virtualFrame: virtualFrame, contentFrame: contentFrame) : nil
+                } else if let previous = previousVirtualLocation {
+                    target = crossingExitTarget(from: previous, to: mouseLocation, virtualFrame: virtualFrame, contentFrame: contentFrame)
+                }
+                if let target {
+                    warpCursor(to: target)
+                    // The warp itself moves the cursor off the display; forget the last
+                    // on-display position so the next tick doesn't mistake the warp for
+                    // a fresh exit and warp a second time (to the wrong edge).
+                    lastVirtualLocation = nil
+                    skipEntryCheckOnce = true
+                    return
+                }
             }
 
             if skipEntryCheckOnce {
@@ -123,30 +154,73 @@ func mouseEdgeCrossingSideEffect() -> SideEffect {
             } else if behavior.jumpInEnabled, isInsideWindow, wasInsideWindow == false {
                 let target = entryTarget(mouseLocation: mouseLocation, contentFrame: contentFrame, resolution: resolution)
                 skipExitCheckOnce = true
+                exitArmed = false
                 dispatch(MouseLocationAction.requestMove(toPoint: target))
             }
         }
     }
 }
 
+private func distanceToNearestEdge(_ point: NSPoint, in frame: CGRect) -> CGFloat {
+    min(point.x - frame.minX, frame.maxX - point.x, point.y - frame.minY, frame.maxY - point.y)
+}
+
 // Point (in the preview window's global screen coordinate space) mirroring where the
 // cursor sits along the virtual display's edge, or nil if it isn't currently near one.
-// mouseLocation may be slightly outside virtualFrame (see expandedVirtualFrame above),
-// so the fractions are clamped to stay within contentFrame.
 private func exitTarget(mouseLocation: NSPoint, virtualFrame: CGRect, contentFrame: CGRect) -> CGPoint? {
-    let fractionX = min(max((mouseLocation.x - virtualFrame.minX) / virtualFrame.width, 0), 1)
-    let fractionY = min(max((mouseLocation.y - virtualFrame.minY) / virtualFrame.height, 0), 1)
+    let fractionX = (mouseLocation.x - virtualFrame.minX) / virtualFrame.width
+    let fractionY = (mouseLocation.y - virtualFrame.minY) / virtualFrame.height
 
-    if mouseLocation.x - virtualFrame.minX <= edgeMargin {
-        return CGPoint(x: contentFrame.minX + edgeMargin, y: contentFrame.minY + fractionY * contentFrame.height)
-    } else if virtualFrame.maxX - mouseLocation.x <= edgeMargin {
-        return CGPoint(x: contentFrame.maxX - edgeMargin, y: contentFrame.minY + fractionY * contentFrame.height)
-    } else if mouseLocation.y - virtualFrame.minY <= edgeMargin {
-        return CGPoint(x: contentFrame.minX + fractionX * contentFrame.width, y: contentFrame.minY + edgeMargin)
-    } else if virtualFrame.maxY - mouseLocation.y <= edgeMargin {
-        return CGPoint(x: contentFrame.minX + fractionX * contentFrame.width, y: contentFrame.maxY - edgeMargin)
+    // Nearest edge wins, so a cursor in a corner exits through the edge it's actually
+    // being pushed against rather than whichever edge is checked first.
+    let distances = [
+        mouseLocation.x - virtualFrame.minX,
+        virtualFrame.maxX - mouseLocation.x,
+        mouseLocation.y - virtualFrame.minY,
+        virtualFrame.maxY - mouseLocation.y,
+    ]
+    guard let nearest = distances.enumerated().min(by: { $0.element < $1.element }), nearest.element <= edgeMargin else {
+        return nil
     }
-    return nil
+
+    switch nearest.offset {
+    case 0: return CGPoint(x: contentFrame.minX + edgeMargin, y: contentFrame.minY + fractionY * contentFrame.height)
+    case 1: return CGPoint(x: contentFrame.maxX - edgeMargin, y: contentFrame.minY + fractionY * contentFrame.height)
+    case 2: return CGPoint(x: contentFrame.minX + fractionX * contentFrame.width, y: contentFrame.minY + edgeMargin)
+    default: return CGPoint(x: contentFrame.minX + fractionX * contentFrame.width, y: contentFrame.maxY - edgeMargin)
+    }
+}
+
+// Like exitTarget, but for a cursor that has already left the virtual display: finds
+// where the segment from its last on-display position to its current (off-display)
+// position crossed the display's boundary, and mirrors that crossing point.
+private func crossingExitTarget(from last: NSPoint, to current: NSPoint, virtualFrame: CGRect, contentFrame: CGRect) -> CGPoint? {
+    let dx = current.x - last.x
+    let dy = current.y - last.y
+
+    // Parametric position (0...1) along the segment at which each violated edge is
+    // crossed; the smallest one is the edge actually left through.
+    var best: (t: CGFloat, edge: Int)?
+    func consider(_ t: CGFloat, _ edge: Int) {
+        if best == nil || t < best!.t { best = (t, edge) }
+    }
+    if current.x < virtualFrame.minX, dx != 0 { consider((virtualFrame.minX - last.x) / dx, 0) }
+    if current.x > virtualFrame.maxX, dx != 0 { consider((virtualFrame.maxX - last.x) / dx, 1) }
+    if current.y < virtualFrame.minY, dy != 0 { consider((virtualFrame.minY - last.y) / dy, 2) }
+    if current.y > virtualFrame.maxY, dy != 0 { consider((virtualFrame.maxY - last.y) / dy, 3) }
+    guard let (t, edge) = best else { return nil }
+
+    let crossX = last.x + t * dx
+    let crossY = last.y + t * dy
+    let fractionX = min(max((crossX - virtualFrame.minX) / virtualFrame.width, 0), 1)
+    let fractionY = min(max((crossY - virtualFrame.minY) / virtualFrame.height, 0), 1)
+
+    switch edge {
+    case 0: return CGPoint(x: contentFrame.minX + edgeMargin, y: contentFrame.minY + fractionY * contentFrame.height)
+    case 1: return CGPoint(x: contentFrame.maxX - edgeMargin, y: contentFrame.minY + fractionY * contentFrame.height)
+    case 2: return CGPoint(x: contentFrame.minX + fractionX * contentFrame.width, y: contentFrame.minY + edgeMargin)
+    default: return CGPoint(x: contentFrame.minX + fractionX * contentFrame.width, y: contentFrame.maxY - edgeMargin)
+    }
 }
 
 // Point (in the virtual display's own top-left-origin coordinate space, as
@@ -158,6 +232,33 @@ private func entryTarget(mouseLocation: NSPoint, contentFrame: CGRect, resolutio
     let clampedFractionX = min(max(fractionX, 0), 1)
     let clampedFractionYFromTop = min(max(fractionYFromTop, 0), 1)
     return CGPoint(x: clampedFractionX * resolution.width, y: clampedFractionYFromTop * resolution.height)
+}
+
+// True if the topmost on-screen window under the point belongs to this app. Only
+// ordinary content is considered: the desktop (negative layers), fully transparent
+// windows and the window server's own cursor/overlay surfaces are skipped, since they
+// would otherwise always "cover" the preview.
+private func isPreviewWindowVisible(at appKitPoint: NSPoint) -> Bool {
+    guard let mainScreenHeight = NSScreen.screens.first?.frame.height,
+          let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+    else { return true }
+
+    let quartzPoint = CGPoint(x: appKitPoint.x, y: mainScreenHeight - appKitPoint.y)
+    let ownPID = ProcessInfo.processInfo.processIdentifier
+
+    // The list is ordered front to back.
+    for window in windows {
+        guard
+            let layer = window[kCGWindowLayer as String] as? Int, layer >= 0,
+            (window[kCGWindowAlpha as String] as? Double ?? 1) > 0.01,
+            window[kCGWindowOwnerName as String] as? String != "Window Server",
+            let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
+            let bounds = CGRect(dictionaryRepresentation: boundsDict),
+            bounds.contains(quartzPoint)
+        else { continue }
+        return (window[kCGWindowOwnerPID as String] as? Int32) == ownPID
+    }
+    return true
 }
 
 private func warpCursor(to target: CGPoint) {
