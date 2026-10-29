@@ -79,6 +79,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeOptionsMenu() -> NSMenu {
         let menu = NSMenu(title: "Options")
         menu.delegate = self
+        // The foreground item is enabled/disabled by hand in menuNeedsUpdate.
+        menu.autoenablesItems = false
 
         let jumpOutItem = NSMenuItem(title: "Jump Cursor Out at Screen Edge", action: #selector(toggleJumpOut(_:)), keyEquivalent: "")
         jumpOutItem.target = self
@@ -87,6 +89,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let jumpInItem = NSMenuItem(title: "Jump Cursor In at Window Edge", action: #selector(toggleJumpIn(_:)), keyEquivalent: "")
         jumpInItem.target = self
         menu.addItem(jumpInItem)
+
+        let foregroundItem = NSMenuItem(title: "Only Jump In When DeskPad Is in Foreground", action: #selector(toggleJumpInOnlyWhenForeground(_:)), keyEquivalent: "")
+        foregroundItem.target = self
+        foregroundItem.indentationLevel = 1
+        menu.addItem(foregroundItem)
 
         return menu
     }
@@ -99,6 +106,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         store.dispatch(MouseEdgeBehaviorAction.setJumpInEnabled(!store.state.mouseEdgeBehaviorState.jumpInEnabled))
     }
 
+    @objc private func toggleJumpInOnlyWhenForeground(_: NSMenuItem) {
+        store.dispatch(MouseEdgeBehaviorAction.setJumpInOnlyWhenForeground(!store.state.mouseEdgeBehaviorState.jumpInOnlyWhenForeground))
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
         return true
     }
@@ -106,9 +117,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
-        guard menu.title == "Options", menu.items.count == 2 else { return }
+        guard menu.title == "Options", menu.items.count == 3 else { return }
         let behavior = store.state.mouseEdgeBehaviorState
         menu.items[0].state = behavior.jumpOutEnabled ? .on : .off
         menu.items[1].state = behavior.jumpInEnabled ? .on : .off
+        menu.items[2].state = behavior.jumpInOnlyWhenForeground ? .on : .off
+        menu.items[2].isEnabled = behavior.jumpInEnabled
     }
 }

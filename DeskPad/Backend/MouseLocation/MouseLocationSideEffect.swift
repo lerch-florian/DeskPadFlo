@@ -151,7 +151,12 @@ func mouseEdgeCrossingSideEffect() -> SideEffect {
 
             if skipEntryCheckOnce {
                 skipEntryCheckOnce = false
-            } else if behavior.jumpInEnabled, isInsideWindow, wasInsideWindow == false {
+            } else if
+                behavior.jumpInEnabled,
+                behavior.jumpInOnlyWhenForeground == false || NSApp.isActive,
+                isInsideWindow,
+                wasInsideWindow == false
+            {
                 let target = entryTarget(mouseLocation: mouseLocation, contentFrame: contentFrame, resolution: resolution)
                 skipExitCheckOnce = true
                 exitArmed = false
