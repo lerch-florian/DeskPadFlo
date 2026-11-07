@@ -5,13 +5,15 @@ struct AppState: Equatable {
     let screenConfigurationState: ScreenConfigurationState
     let previewWindowState: PreviewWindowState
     let mouseEdgeBehaviorState: MouseEdgeBehaviorState
+    let shortcutsState: ShortcutsState
 
     static var initialState: AppState {
         return AppState(
             mouseLocationState: .initialState,
             screenConfigurationState: .initialState,
             previewWindowState: .initialState,
-            mouseEdgeBehaviorState: .initialState
+            mouseEdgeBehaviorState: .initialState,
+            shortcutsState: .initialState
         )
     }
 }
@@ -23,6 +25,7 @@ func appReducer(action: Action, state: AppState?) -> AppState {
         mouseLocationState: mouseLocationReducer(action: action, state: state.mouseLocationState),
         screenConfigurationState: screenConfigurationReducer(action: action, state: state.screenConfigurationState),
         previewWindowState: previewWindowReducer(action: action, state: state.previewWindowState),
-        mouseEdgeBehaviorState: mouseEdgeBehaviorReducer(action: action, state: state.mouseEdgeBehaviorState)
+        mouseEdgeBehaviorState: mouseEdgeBehaviorReducer(action: action, state: state.mouseEdgeBehaviorState),
+        shortcutsState: shortcutsReducer(action: action, state: state.shortcutsState)
     )
 }

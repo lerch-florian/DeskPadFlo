@@ -128,7 +128,7 @@ func mouseEdgeCrossingSideEffect() -> SideEffect {
             // preview can be sent into the virtual screen by shaking or by cmd+shift+D.
             let clickToEnter = behavior.cursorMode == .clickToEnter
             let shook = windowDrag.tick(mouseLocation: mouseLocation, trackShake: clickToEnter && contentFrame.contains(mouseLocation))
-            setDragEntryHotKeyRegistered(clickToEnter && windowDrag.isButtonHeldOnForeignWindow)
+            setDragEntryHotKeyRegistered(clickToEnter && windowDrag.isButtonHeldOnForeignWindow, shortcut: state.shortcutsState.dragEntry)
 
             // Dragging the preview window itself: it moves with the cursor, so a jump would
             // drag it along into the virtual display (invisible) or let the stale window

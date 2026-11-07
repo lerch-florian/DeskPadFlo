@@ -26,6 +26,8 @@
 		6DF0A0000000000000000006 /* PreviewWindowState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF0A0000000000000000002 /* PreviewWindowState.swift */; };
 		6DF0A0000000000000000007 /* AvailableResolutions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF0A0000000000000000003 /* AvailableResolutions.swift */; };
 		6DF0A0000000000000000008 /* WindowDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF0A0000000000000000004 /* WindowDrag.swift */; };
+		6DF0A0000000000000000023 /* ShortcutsState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF0A0000000000000000021 /* ShortcutsState.swift */; };
+		6DF0A0000000000000000024 /* ShortcutsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF0A0000000000000000022 /* ShortcutsViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +53,8 @@
 		6DF0A0000000000000000002 /* PreviewWindowState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewWindowState.swift; sourceTree = "<group>"; };
 		6DF0A0000000000000000003 /* AvailableResolutions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailableResolutions.swift; sourceTree = "<group>"; };
 		6DF0A0000000000000000004 /* WindowDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDrag.swift; sourceTree = "<group>"; };
+		6DF0A0000000000000000021 /* ShortcutsState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsState.swift; sourceTree = "<group>"; };
+		6DF0A0000000000000000022 /* ShortcutsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +79,7 @@
 				6D41B09D2879FA87007CEB2F /* MouseLocation */,
 				6DF0A0000000000000000009 /* MouseEdgeBehavior */,
 				6DF0A000000000000000000A /* PreviewWindow */,
+				6DF0A0000000000000000025 /* Shortcuts */,
 			);
 			path = Backend;
 			sourceTree = "<group>";
@@ -83,6 +88,7 @@
 			isa = PBXGroup;
 			children = (
 				6D41B0A22879FB88007CEB2F /* Screen */,
+				6DF0A0000000000000000026 /* Shortcuts */,
 			);
 			path = Frontend;
 			sourceTree = "<group>";
@@ -171,6 +177,22 @@
 				6DF0A0000000000000000002 /* PreviewWindowState.swift */,
 			);
 			path = PreviewWindow;
+			sourceTree = "<group>";
+		};
+		6DF0A0000000000000000025 /* Shortcuts */ = {
+			isa = PBXGroup;
+			children = (
+				6DF0A0000000000000000021 /* ShortcutsState.swift */,
+			);
+			path = Shortcuts;
+			sourceTree = "<group>";
+		};
+		6DF0A0000000000000000026 /* Shortcuts */ = {
+			isa = PBXGroup;
+			children = (
+				6DF0A0000000000000000022 /* ShortcutsViewController.swift */,
+			);
+			path = Shortcuts;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -283,6 +305,8 @@
 				6D2F148E280C211E00A3A2E5 /* ScreenViewController.swift in Sources */,
 				6DC044522801877F00281728 /* AppDelegate.swift in Sources */,
 				6DC04461280191EB00281728 /* main.swift in Sources */,
+				6DF0A0000000000000000023 /* ShortcutsState.swift in Sources */,
+				6DF0A0000000000000000024 /* ShortcutsViewController.swift in Sources */,
 				6DF0A0000000000000000005 /* MouseEdgeBehaviorState.swift in Sources */,
 				6DF0A0000000000000000006 /* PreviewWindowState.swift in Sources */,
 				6DF0A0000000000000000007 /* AvailableResolutions.swift in Sources */,

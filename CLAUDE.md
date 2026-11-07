@@ -39,8 +39,12 @@ under `DeskPad/Backend/`, one subfolder per slice:
     cursor clamped at the top/right edge reports exactly `maxY`/`maxX`, which
     `CGRect.contains` (half-open) treats as outside. In a corner the nearest
     edge wins.
-  - Entry only counts if the preview window is the topmost window under the
-    cursor (`isPreviewWindowVisible`, via `CGWindowListCopyWindowInfo`, only
+  - Entry only counts if the preview window *itself* is the topmost window under the
+    cursor (`isPreviewWindowVisible`, compared by window number — comparing the owning
+    process would let the app's own Shortcuts window, which covers the preview like any
+    other window, count as the preview and the cursor would jump into it; the Dock's
+    screen-sized transparent overlay is ignored for the same reason: while it exists,
+    nothing could enter), via `CGWindowListCopyWindowInfo`, only
     evaluated on a potential entry — it's too slow to run at 60Hz). Modes
     that don't enter automatically skip the check entirely.
   - Seamless mode additionally leaves *where the virtual screen isn't
@@ -138,6 +142,23 @@ under `DeskPad/Backend/`, one subfolder per slice:
     never allowed onto the virtual display (it would be invisible there). It is clamped
     to the real displays' edge on `windowDidMove` — a soft wall, not a snap back inside,
     which showed as a visible jump.
+- `Shortcuts/` — the two user-changeable global shortcuts (`ShortcutKind`: emergency reset, drag
+  entry; defaults ⌘⌥⇧H and ⌘⇧D). A `Shortcut` is a key code plus Carbon modifier flags, the form
+  `RegisterEventHotKey` takes. State is persisted in `UserDefaults` (only non-default values);
+  `shortcutsSideEffect` saves on every `ShortcutsAction` and re-registers the emergency hotkey
+  (`updateEmergencyHotKey`). The drag hotkey is only registered during a foreign-window drag in
+  Click to Enter mode; `setDragEntryHotKeyRegistered` is called every tick with the current shortcut
+  and re-registers if it changed. `ShortcutsState.validate` refuses a combination with no ⌘/⌃/⌥
+  (unless it is an F-key; it would swallow typing system-wide), macOS-reserved ones (⌘Q, ⌘W, ⌘H, ⌘M,
+  ⌘Tab, ⌘Space, ⌘`, ⌘⌥Esc) and one already used by the other shortcut. Display names come from
+  `UCKeyTranslate` for the current keyboard layout, plus a table for non-printing keys. The
+  "Shortcuts…" window (`Frontend/Shortcuts/ShortcutsViewController.swift`) records the next key
+  combination with a *local* event monitor (only while that window is key; no permission needed;
+  it returns nil to swallow the key, so even ⌘Q is caught while recording) and stops recording
+  on Esc, on the window losing focus or closing. The Options menu's emergency item shows the
+  current shortcut as its key equivalent when the key can be expressed as one (refreshed whenever
+  the menu opens). Carbon only reports a hotkey clash with *this* app, so a combination another app
+  has already taken can't be detected.
 - `ScreenConfiguration/` — resolution/scale-factor/displayID of the virtual
   display. `AvailableResolutions.swift` is the single source of truth for
   the preset resolution list, shared between the modes declared to

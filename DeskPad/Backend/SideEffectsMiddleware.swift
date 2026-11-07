@@ -8,6 +8,7 @@ private let sideEffects: [SideEffect] = [
     mouseEdgeCrossingSideEffect(),
     screenConfigurationSideEffect(),
     mouseEdgeBehaviorPersistenceSideEffect(),
+    shortcutsSideEffect(),
 ]
 
 let sideEffectsMiddleware: Middleware<AppState> = { dispatch, getState in

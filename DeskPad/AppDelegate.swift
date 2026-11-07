@@ -47,7 +47,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.items = [mainMenuItem, resolutionMenuItem, optionsMenuItem]
         NSApplication.shared.mainMenu = mainMenu
 
-        registerEmergencyHotKey()
+        registerHotKeys(emergencyReset: store.state.shortcutsState.emergencyReset)
         installRaiseOnVirtualClickMonitor()
         store.dispatch(AppDelegateAction.didFinishLaunching)
     }
@@ -135,11 +135,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        // The same shortcut is registered system-wide in registerEmergencyHotKey().
-        let emergencyItem = NSMenuItem(title: "Emergency: Move Cursor to Main Screen", action: #selector(emergencyCursorReset(_:)), keyEquivalent: "h")
-        emergencyItem.keyEquivalentModifierMask = [.command, .option, .shift]
+        // The same shortcut is registered system-wide (registerHotKeys); the menu shows the current one.
+        let emergencyItem = NSMenuItem(title: "Emergency: Move Cursor to Main Screen", action: #selector(emergencyCursorReset(_:)), keyEquivalent: "")
         emergencyItem.target = self
+        setKeyEquivalent(of: emergencyItem, to: store.state.shortcutsState.emergencyReset)
         menu.addItem(emergencyItem)
+
+        let shortcutsItem = NSMenuItem(title: "Shortcuts…", action: #selector(openShortcuts(_:)), keyEquivalent: "")
+        shortcutsItem.target = self
+        menu.addItem(shortcutsItem)
 
         return menu
     }
@@ -157,6 +161,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         jumpCursorToMainScreenCenter()
     }
 
+    private lazy var shortcutsWindow: NSWindow = {
+        let window = NSWindow(contentViewController: ShortcutsViewController())
+        window.title = "Shortcuts"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        return window
+    }()
+
+    @objc private func openShortcuts(_: NSMenuItem) {
+        NSApp.activate(ignoringOtherApps: true)
+        shortcutsWindow.makeKeyAndOrderFront(nil)
+    }
+
+    // Shows a shortcut next to a menu item, when its key can be expressed as a key equivalent.
+    private func setKeyEquivalent(of item: NSMenuItem, to shortcut: Shortcut) {
+        if let key = shortcut.menuKeyEquivalent {
+            item.keyEquivalent = key
+            item.keyEquivalentModifierMask = shortcut.modifierFlags
+        } else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+        }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
         return true
     }
@@ -171,6 +200,8 @@ extension AppDelegate: NSMenuDelegate {
                 item.state = mode == behavior.cursorMode ? .on : .off
             } else if item.action == #selector(toggleBlockOSScreenConnection(_:)) {
                 item.state = behavior.blockOSScreenConnection ? .on : .off
+            } else if item.action == #selector(emergencyCursorReset(_:)) {
+                setKeyEquivalent(of: item, to: store.state.shortcutsState.emergencyReset)
             }
         }
     }

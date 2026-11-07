@@ -12,8 +12,9 @@ struct WindowSnapshot {
 private var windowSnapshotCache: (takenAt: Date, windows: [WindowSnapshot])?
 
 // On-screen windows front to back. Only ordinary content is kept: the desktop (negative
-// layers), fully transparent windows and the window server's own cursor/overlay
-// surfaces are skipped, since they would otherwise always "cover" the preview. A
+// layers), fully transparent windows, the window server's own cursor/overlay surfaces and the
+// Dock's screen-sized transparent overlay are skipped, since they would otherwise always
+// "cover" the preview (while the Dock's overlay exists, nothing could ever enter). A
 // snapshot younger than `maxAge` is reused; pass 0 to always query afresh.
 func frontToBackWindows(maxAge: TimeInterval) -> [WindowSnapshot]? {
     if let cache = windowSnapshotCache, Date().timeIntervalSince(cache.takenAt) < maxAge {
@@ -27,6 +28,7 @@ func frontToBackWindows(maxAge: TimeInterval) -> [WindowSnapshot]? {
             let layer = window[kCGWindowLayer as String] as? Int, layer >= 0,
             (window[kCGWindowAlpha as String] as? Double ?? 1) > 0.01,
             window[kCGWindowOwnerName as String] as? String != "Window Server",
+            window[kCGWindowOwnerName as String] as? String != "Dock",
             let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
             let bounds = CGRect(dictionaryRepresentation: boundsDict)
         else { return nil }
@@ -40,8 +42,9 @@ func frontToBackWindows(maxAge: TimeInterval) -> [WindowSnapshot]? {
     return windows
 }
 
-// True if the topmost on-screen window under the point belongs to this app. A window
-// that is being dragged right now is ignored: it is carried along under the cursor and
+// True if the topmost on-screen window under the point is the preview window itself — not just
+// any window of this app (the Shortcuts window, say, covers the preview like any other). A
+// window that is being dragged right now is ignored: it is carried along under the cursor and
 // would otherwise always cover the preview, making it impossible to drag a window into it.
 func isPreviewWindowVisible(at appKitPoint: NSPoint, maxAge: TimeInterval = 0) -> Bool {
     guard let mainScreenHeight = NSScreen.screens.first?.frame.height,
@@ -53,7 +56,10 @@ func isPreviewWindowVisible(at appKitPoint: NSPoint, maxAge: TimeInterval = 0) -
     guard let topmost = windows.first(where: { $0.number != dragged && $0.bounds.contains(quartzPoint) }) else {
         return true
     }
-    return topmost.ownerPID == ProcessInfo.processInfo.processIdentifier
+    guard let previewNumber = (NSApp.delegate as? AppDelegate)?.window?.windowNumber else {
+        return topmost.ownerPID == ProcessInfo.processInfo.processIdentifier
+    }
+    return topmost.number == previewNumber
 }
 
 // MARK: - Drag tracking
@@ -199,10 +205,10 @@ private enum HotKeyID: UInt32 {
     case dragEntry = 2
 }
 
-// Registers the emergency reset (cmd+option+shift+H) system-wide, and installs the one
-// handler that serves every DeskPad hotkey. Hotkeys work while DeskPad isn't frontmost
-// and need no accessibility permission.
-func registerEmergencyHotKey() {
+// Installs the one handler that serves every DeskPad hotkey and registers the emergency
+// reset system-wide. Hotkeys work while DeskPad isn't frontmost and need no accessibility
+// permission. The keys themselves are the user's (ShortcutsState).
+func registerHotKeys(emergencyReset: Shortcut) {
     var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
     InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
         var hotKeyID = EventHotKeyID()
@@ -217,25 +223,39 @@ func registerEmergencyHotKey() {
         }
         return noErr
     }, 1, &eventType, nil, nil)
+    updateEmergencyHotKey(emergencyReset)
+}
+
+// Moves the emergency reset to another shortcut (or registers it for the first time).
+func updateEmergencyHotKey(_ shortcut: Shortcut) {
+    if let ref = emergencyHotKeyRef {
+        UnregisterEventHotKey(ref)
+        emergencyHotKeyRef = nil
+    }
     RegisterEventHotKey(
-        UInt32(kVK_ANSI_H), UInt32(cmdKey | optionKey | shiftKey),
+        shortcut.keyCode, shortcut.modifiers,
         EventHotKeyID(signature: hotKeySignature, id: HotKeyID.emergency.rawValue),
         GetApplicationEventTarget(), 0, &emergencyHotKeyRef
     )
 }
 
-// cmd+shift+D is a common shortcut in other apps (e.g. bookmarking), so it is only
-// claimed system-wide while it can actually do something: during a window drag in
-// "Click to Enter" mode.
-func setDragEntryHotKeyRegistered(_ registered: Bool) {
+private var dragEntryRegisteredShortcut: Shortcut?
+
+// The drag shortcut (cmd+shift+D by default) is a common one in other apps (e.g. bookmarking),
+// so it is only claimed system-wide while it can actually do something: during a window drag
+// in "Click to Enter" mode. Called every tick; it re-registers if the user changed the shortcut.
+func setDragEntryHotKeyRegistered(_ registered: Bool, shortcut: Shortcut) {
+    if let ref = dragEntryHotKeyRef, registered == false || dragEntryRegisteredShortcut != shortcut {
+        UnregisterEventHotKey(ref)
+        dragEntryHotKeyRef = nil
+        dragEntryRegisteredShortcut = nil
+    }
     if registered, dragEntryHotKeyRef == nil {
         RegisterEventHotKey(
-            UInt32(kVK_ANSI_D), UInt32(cmdKey | shiftKey),
+            shortcut.keyCode, shortcut.modifiers,
             EventHotKeyID(signature: hotKeySignature, id: HotKeyID.dragEntry.rawValue),
             GetApplicationEventTarget(), 0, &dragEntryHotKeyRef
         )
-    } else if registered == false, let ref = dragEntryHotKeyRef {
-        UnregisterEventHotKey(ref)
-        dragEntryHotKeyRef = nil
+        dragEntryRegisteredShortcut = shortcut
     }
 }

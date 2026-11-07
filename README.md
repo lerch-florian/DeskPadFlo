@@ -22,6 +22,8 @@ Entering maps the cursor to the same relative point on the virtual screen; leavi
 
 **Emergency reset** — `⌘⌥⇧H` (system-wide) or Options → *Emergency: Move Cursor to Main Screen* puts the cursor in the middle of your main screen, in case it is ever stuck on the virtual one.
 
+**Shortcuts** — Options → *Shortcuts…* lets you change both keyboard shortcuts (the emergency reset and the drag shortcut below): click a shortcut, press the new combination, Esc cancels, *Reset* restores the default. Combinations that would catch normal typing or that macOS reserves (e.g. `⌘Q`) are refused. Your choices are remembered.
+
 ### Moving windows in and out
 
 Windows are moved by the OS's own window drag, so no Accessibility permission is needed:
@@ -38,7 +40,7 @@ Windows are moved by the OS's own window drag, so no Accessibility permission is
 ### Other changes
 
 - The preview window is no longer raised merely because the cursor moved onto the virtual display; whether it is raised depends on the mode (see the table).
-- Your settings are remembered between launches: the cursor mode, disconnecting the screen, and the resolution you pick.
+- Your settings are remembered between launches: the cursor mode, disconnecting the screen, the resolution you pick, and your keyboard shortcuts.
 - The project can be built, packaged and released **without Xcode.app and without a paid Apple account**; see Installing below.
 
 ## Installing this fork
