@@ -22,6 +22,10 @@
 		6DC044522801877F00281728 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC044512801877F00281728 /* AppDelegate.swift */; };
 		6DC044562801878100281728 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6DC044552801878100281728 /* Assets.xcassets */; };
 		6DC04461280191EB00281728 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC04460280191EB00281728 /* main.swift */; };
+		6DF0A0000000000000000005 /* MouseEdgeBehaviorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF0A0000000000000000001 /* MouseEdgeBehaviorState.swift */; };
+		6DF0A0000000000000000006 /* PreviewWindowState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF0A0000000000000000002 /* PreviewWindowState.swift */; };
+		6DF0A0000000000000000007 /* AvailableResolutions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF0A0000000000000000003 /* AvailableResolutions.swift */; };
+		6DF0A0000000000000000008 /* WindowDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF0A0000000000000000004 /* WindowDrag.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +47,10 @@
 		6DC044552801878100281728 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6DC0445A2801878100281728 /* DeskPad.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DeskPad.entitlements; sourceTree = "<group>"; };
 		6DC04460280191EB00281728 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		6DF0A0000000000000000001 /* MouseEdgeBehaviorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseEdgeBehaviorState.swift; sourceTree = "<group>"; };
+		6DF0A0000000000000000002 /* PreviewWindowState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewWindowState.swift; sourceTree = "<group>"; };
+		6DF0A0000000000000000003 /* AvailableResolutions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailableResolutions.swift; sourceTree = "<group>"; };
+		6DF0A0000000000000000004 /* WindowDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDrag.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,6 +73,8 @@
 				6D2F1489280C20D000A3A2E5 /* Store.swift */,
 				6D68E1AD287ABB6F00CD574A /* ScreenConfiguration */,
 				6D41B09D2879FA87007CEB2F /* MouseLocation */,
+				6DF0A0000000000000000009 /* MouseEdgeBehavior */,
+				6DF0A000000000000000000A /* PreviewWindow */,
 			);
 			path = Backend;
 			sourceTree = "<group>";
@@ -82,6 +92,7 @@
 			children = (
 				6D41B09E2879FAB6007CEB2F /* MouseLocationSideEffect.swift */,
 				6D41B0A02879FABE007CEB2F /* MouseLocationState.swift */,
+				6DF0A0000000000000000004 /* WindowDrag.swift */,
 			);
 			path = MouseLocation;
 			sourceTree = "<group>";
@@ -100,6 +111,7 @@
 			children = (
 				6D68E1AE287ABB9900CD574A /* ScreenConfigurationSideEffect.swift */,
 				6D68E1B3287ABFC800CD574A /* ScreenConfigurationState.swift */,
+				6DF0A0000000000000000003 /* AvailableResolutions.swift */,
 			);
 			path = ScreenConfiguration;
 			sourceTree = "<group>";
@@ -143,6 +155,22 @@
 				6DC0445A2801878100281728 /* DeskPad.entitlements */,
 			);
 			path = DeskPad;
+			sourceTree = "<group>";
+		};
+		6DF0A0000000000000000009 /* MouseEdgeBehavior */ = {
+			isa = PBXGroup;
+			children = (
+				6DF0A0000000000000000001 /* MouseEdgeBehaviorState.swift */,
+			);
+			path = MouseEdgeBehavior;
+			sourceTree = "<group>";
+		};
+		6DF0A000000000000000000A /* PreviewWindow */ = {
+			isa = PBXGroup;
+			children = (
+				6DF0A0000000000000000002 /* PreviewWindowState.swift */,
+			);
+			path = PreviewWindow;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -255,6 +283,10 @@
 				6D2F148E280C211E00A3A2E5 /* ScreenViewController.swift in Sources */,
 				6DC044522801877F00281728 /* AppDelegate.swift in Sources */,
 				6DC04461280191EB00281728 /* main.swift in Sources */,
+				6DF0A0000000000000000005 /* MouseEdgeBehaviorState.swift in Sources */,
+				6DF0A0000000000000000006 /* PreviewWindowState.swift in Sources */,
+				6DF0A0000000000000000007 /* AvailableResolutions.swift in Sources */,
+				6DF0A0000000000000000008 /* WindowDrag.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -397,7 +429,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.3.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.stengo.DeskPad;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lerch-florian.DeskPad;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -423,7 +455,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.3.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.stengo.DeskPad;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lerch-florian.DeskPad;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

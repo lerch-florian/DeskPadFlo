@@ -7,6 +7,7 @@ private let sideEffects: [SideEffect] = [
     mouseLocationSideEffect(),
     mouseEdgeCrossingSideEffect(),
     screenConfigurationSideEffect(),
+    mouseEdgeBehaviorPersistenceSideEffect(),
 ]
 
 let sideEffectsMiddleware: Middleware<AppState> = { dispatch, getState in

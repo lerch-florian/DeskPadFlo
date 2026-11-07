@@ -22,6 +22,15 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        // Without the Screen Recording permission the stream delivers nothing and the window
+        // stays blank, and macOS doesn't ask by itself: the app has to, or it never shows up in
+        // the Screen Recording list. Ask (the system prompt also lists DeskPad there) and say
+        // in the window what to do.
+        if CGPreflightScreenCaptureAccess() == false {
+            _ = CGRequestScreenCaptureAccess()
+            showPermissionHint()
+        }
+
         let descriptor = CGVirtualDisplayDescriptor()
         descriptor.setDispatchQueue(DispatchQueue.main)
         descriptor.name = "DeskPad Display"
@@ -62,8 +71,8 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
         if viewData.isWindowHighlighted != isWindowHighlighted {
             isWindowHighlighted = viewData.isWindowHighlighted
             view.window?.backgroundColor = isWindowHighlighted
-                ? NSColor(named: "TitleBarActive")
-                : NSColor(named: "TitleBarInactive")
+                ? NSColor.selectedContentBackgroundColor
+                : NSColor.windowBackgroundColor
         }
 
         if
@@ -167,6 +176,34 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
             return frameSize
         }
         return window.frameRect(forContentRect: NSRect(origin: .zero, size: screenResolution)).size
+    }
+
+    private func showPermissionHint() {
+        let message = NSTextField(wrappingLabelWithString: """
+            DeskPad needs permission to record your screen — that is how it shows the virtual screen in this window.
+
+            Open System Settings → Privacy & Security → Screen Recording and switch DeskPad on (if it isn't listed, click + and add it). Then quit and reopen DeskPad.
+            """)
+        message.alignment = .center
+        message.textColor = .black
+        let button = NSButton(title: "Open Screen Recording Settings", target: self, action: #selector(openScreenRecordingSettings))
+        let stack = NSStackView(views: [message, button])
+        stack.orientation = .vertical
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            stack.widthAnchor.constraint(lessThanOrEqualToConstant: 380),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 20),
+        ])
+    }
+
+    @objc private func openScreenRecordingSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func didClickOnScreen(_ gestureRecognizer: NSGestureRecognizer) {

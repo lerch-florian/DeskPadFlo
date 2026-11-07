@@ -71,7 +71,9 @@ under `DeskPad/Backend/`, one subfolder per slice:
     0.25s after one by default; the cursor visibly stuck. Fixed by setting
     `localEventsSuppressionInterval = 0` on a retained `CGEventSource`.
 - `MouseEdgeBehavior/` — `cursorMode` (a `CursorMode`, default `.auto`) and
-  `blockOSScreenConnection` (default `true`). Every mode leaves at the virtual
+  `blockOSScreenConnection` (default `true`). Both are persisted in `UserDefaults`
+  (`initialState` reads them, `mouseEdgeBehaviorPersistenceSideEffect` writes them on every
+  `MouseEdgeBehaviorAction`; unknown stored values fall back to the defaults). Every mode leaves at the virtual
   display's borders; the modes differ in what the `CursorMode` properties say:
   - `seamless`: enters automatically onto any visible part of the preview
     window, also leaves where the mapped point is covered
@@ -164,7 +166,13 @@ under `DeskPad/Backend/`, one subfolder per slice:
     w/2×h/2 (pixels w×h); declaring the host's own size (done in
     `ScreenViewController`) therefore provides the sharp quarter-size one. If the
     host size doesn't halve into an available mode it falls back to matching the
-    host exactly. Dispatches the *known*
+    host exactly.
+    The resolution is persisted as an *explicit choice only* (`StoredResolution`, two
+    `UserDefaults` doubles): a menu selection stores it, the menu's "Quarter of Built-in
+    Display, default" entry (`ScreenConfigurationAction.selectDefaultResolution`) clears it.
+    Storing whatever is active instead would freeze the default at one host size. On launch
+    `applyInitialResolution` applies the stored size if this display still offers it and
+    otherwise falls back to the default. Dispatches the *known*
     target resolution immediately after a successful switch rather than
     waiting for a follow-up `didChangeScreenParametersNotification` — that
     notification is not reliable enough to depend on (this was a real bug:
@@ -208,133 +216,94 @@ from OS Arrangement" toggle and the emergency cursor reset; checkmarks refreshed
 declarations for Swift to call the private symbols via the bridging header
 (`DeskPad-Bridging-Header.h`).
 
-## Building and testing without Xcode.app
+## Building, signing and distributing (no Xcode.app, no paid Apple account)
 
-This machine may only have the Command Line Tools installed, not the full
-Xcode.app (`xcodebuild`/`actool` unavailable — check with `xcode-select -p`).
-**You do not need Xcode.app to build or run this app.** Command Line Tools
-already ship `swiftc`/`swift build` and the full macOS SDK (Cocoa, AppKit,
-CoreGraphics), which is all this project needs — the only "private" piece
-(`CGVirtualDisplay`) is a header declaration, not a separate framework.
+Only the Command Line Tools are needed (`xcode-select --install`; check with
+`xcode-select -p`): `swift build` and the macOS SDK cover everything, and the one
+"private" piece (`CGVirtualDisplay`) is just a header, not a framework. The repo has a
+root `Package.swift` (target `DeskPad`, source folder `DeskPad/`, the bridging header
+passed via `-import-objc-header`), so `swift build` works straight from a clone.
 
-### Compiling via a throwaway SwiftPM package
+The goal is that others can use the app with little effort **without anyone paying
+for an Apple Developer account**, which rules out Developer ID signing and
+notarization. Everything below follows from that.
 
-Symlink the real sources into a SwiftPM package (edits to the real files are
-picked up on rebuild since it's real symlinks, not copies):
+### Scripts (`scripts/`)
 
-```bash
-mkdir -p ~/deskpad-cli-build/Sources/DeskPadCLI
-cd ~/deskpad-cli-build
-for f in $(find /Users/florianlerch/ExternProjects/DeskPad/DeskPad -name "*.swift"); do
-  ln -sf "$f" "Sources/DeskPadCLI/$(basename "$f")"
-done
-```
+- `build-dev.sh` — debug build, refreshes `~/DeskPad.app` in place, signs it with the stable
+  identity (`SIGN_IDENTITY`, default `DeskPad Dev Signing`) and relaunches it.
+- `assemble-app.sh <binary> <out.app> <version>` — wraps a built binary into a bundle:
+  `Info.plist` from `Info.plist.in`, and the icon generated from the PNGs in
+  `Assets.xcassets` with `iconutil` (ships with macOS). That is why the asset catalog
+  isn't needed at all: the title-bar colours are plain system colours in code
+  (`selectedContentBackgroundColor` / `windowBackgroundColor`; with `NSColor(named:)` they
+  silently came out `nil` in builds without a compiled catalog).
+- `package-release.sh [version]` — universal (arm64 + x86_64) `dist/DeskPad.app` and
+  `dist/DeskPad.zip`. SwiftPM's `--arch a --arch b` needs Xcode's build engine (`xcbuild`),
+  so it builds each architecture with `--triple` and merges with `lipo`. Signs with
+  `SIGN_IDENTITY` (ad-hoc if unset) and the project's entitlements.
+- `install.sh` — the end-user installer (see below).
 
-`Package.swift`:
+Bundle ID is `io.github.lerch-florian.DeskPad` (not upstream's `com.stengo.DeskPad`, so the
+two apps' permissions can't collide); it is set in `assemble-app.sh`, the scripts and the Xcode project.
+Changing it makes macOS ask for the Screen Recording permission again once.
 
-```swift
-// swift-tools-version:5.9
-import PackageDescription
+### Signing: stable certificate vs ad-hoc
 
-let package = Package(
-    name: "DeskPadCLI",
-    platforms: [.macOS(.v12)],
-    dependencies: [
-        .package(url: "https://github.com/ReSwift/ReSwift.git", from: "6.1.0"),
-    ],
-    targets: [
-        .executableTarget(
-            name: "DeskPadCLI",
-            dependencies: ["ReSwift"],
-            swiftSettings: [
-                .unsafeFlags([
-                    "-import-objc-header",
-                    "/Users/florianlerch/ExternProjects/DeskPad/DeskPad/CGVirtualDisplayPrivate.h",
-                ]),
-            ]
-        ),
-    ]
-)
-```
+TCC (Screen Recording) remembers an app by its *designated requirement*. Ad-hoc signing makes
+that the binary's content hash, so every rebuild/release looks like a brand-new app: duplicate
+entries in System Settings and a re-grant after every update. Signing every build with the same
+self-signed certificate makes it `identifier "…" and certificate leaf = H"…"`, which is stable
+across builds — and that holds on end users' machines too, they don't need to trust the
+certificate. So releases should be built with `SIGN_IDENTITY="DeskPad Dev Signing"` (the
+maintainer's certificate, whose private key must be kept; losing it only costs users one
+re-grant). `security find-identity -v -p codesigning` may report 0 valid identities for a plain
+self-signed certificate (it fails trust evaluation), but `codesign --sign "<name>"` still finds
+and uses it by name. Creating the certificate (openssl → `.p12` → import) writes to the login
+keychain, which needs the person's own go-ahead or a double-click on the `.p12`; the
+`.p12`'s *export* password is what Keychain Access asks for first, not the Mac password. If TCC is
+a mess from earlier ad-hoc builds: `tccutil reset ScreenCapture io.github.lerch-florian.DeskPad`.
 
-Then `swift build`. New source files need their own `ln -sf` into
-`Sources/DeskPadCLI/` before the next build picks them up.
+### Gatekeeper and how users get the app
 
-### Packaging into a real, launchable `.app` (recommended over running the raw binary)
+Without notarization Gatekeeper rejects the app (`spctl --assess` says "rejected"), but it only
+checks files with the **quarantine** flag, which browsers attach to downloads and `curl` doesn't.
+So `install.sh` (`curl -fsSL …/scripts/install.sh | bash`) downloads
+`releases/latest/download/DeskPad.zip` with `curl`, verifies the signature, installs to
+`/Applications` (falls back to `~/Applications`, never needs sudo), clears the flag and opens it.
+A browser-downloaded copy instead needs *System Settings → Privacy & Security → Open Anyway* or
+`xattr -dr com.apple.quarantine /Applications/DeskPad.app`. The installer can be tested without
+the network: `DESKPAD_ZIP_URL=file://… DESKPAD_APPS_DIR=/tmp/x DESKPAD_NO_OPEN=1 scripts/install.sh`.
+Publishing a release = `scripts/package-release.sh <version>` with the certificate, then
+`gh release create v<version> dist/DeskPad.zip` (the installer relies on the fixed asset name
+`DeskPad.zip`).
 
-Running the compiled binary directly (`./.build/debug/DeskPadCLI`) works for
-a quick compile-check, but it's launched outside Launch Services: no proper
-menu bar/frontmost activation (`NSApp.activate(ignoringOtherApps:)` gets
-silently denied for a process launched this way), no Dock icon. Wrapping it
-in a minimal `.app` bundle fixes this and costs little:
+### Sandbox
 
-```bash
-mkdir -p ~/DeskPad.app/Contents/MacOS
-cp ~/deskpad-cli-build/.build/debug/DeskPadCLI ~/DeskPad.app/Contents/MacOS/DeskPad
-```
+The project's entitlements (App Sandbox + the `com.apple.VirtualDisplay` Mach-service exception
++ read-only user-selected files) are used for dev and release builds alike. Verified: with them
+the display, arrangement, resolution switching, cursor jumps, window-list visibility checks,
+posted drag events, shake and the Carbon hotkeys all work. (No hardened runtime: that is for
+notarization.)
 
-`~/DeskPad.app/Contents/Info.plist`:
+### Xcode project
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleExecutable</key><string>DeskPad</string>
-	<key>CFBundleIdentifier</key><string>com.deskpad.dev-test</string>
-	<key>CFBundleName</key><string>DeskPad</string>
-	<key>CFBundlePackageType</key><string>APPL</string>
-	<key>CFBundleShortVersionString</key><string>1.0</string>
-	<key>CFBundleVersion</key><string>1</string>
-	<key>NSHighResolutionCapable</key><true/>
-</dict>
-</plist>
-```
+`DeskPad.xcodeproj` is kept in step *by hand* (new files, groups, bundle ID) and validated only
+structurally: it parses, no duplicate or dangling IDs, every Swift file is in the compile phase.
+It has **not** been built in Xcode (none was available). It still carries upstream's
+`DEVELOPMENT_TEAM`, so contributors choose their own team (a free Apple ID works) or "Sign to
+Run Locally". The SwiftPM path is the one that's actually exercised.
 
-Sign and register it, then launch via `open` (same path Finder uses):
+### Quirks worth knowing
 
-```bash
-codesign --force --deep --sign "DeskPad Dev Signing" ~/DeskPad.app   # see identity note below
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f ~/DeskPad.app
-open ~/DeskPad.app
-```
-
-**Use a stable signing identity, not ad-hoc (`--sign -`).** Ad-hoc signing
-derives the code identity from the binary's own content hash, so *every
-rebuild produces a different identity* — macOS TCC (Screen Recording
-permission) then treats each rebuild as a brand-new, unrecognized app,
-producing duplicate entries in System Settings and an endless
-re-grant-permission loop on every code change. Fix: create one self-signed
-local code-signing certificate once and reuse it for every rebuild —
-`security find-identity -v -p codesigning` may still report "0 valid
-identities" for a plain self-signed cert (it fails full trust-policy
-evaluation), but `codesign --sign "<name>"` can still find and use it
-directly by name; that's sufficient. If TCC state is already a mess from
-prior ad-hoc-signed rebuilds, clear it first:
-`tccutil reset ScreenCapture com.deskpad.dev-test`. Creating the certificate
-itself (openssl → `.p12` → import into keychain) needs either the person's
-explicit one-time GUI interaction (double-click the `.p12`, enter its export
-password, confirm the login keychain unlock) or their explicit approval to
-run `security import` — writing to the login keychain is a persistent
-system change the harness will not do silently.
-
-Caveats of this whole approach (fine for functional testing, not for
-shipping):
-- No `Assets.xcassets` compiled in (no real app icon; `NSColor(named:)`
-  lookups for the title-bar highlight silently return `nil` — cosmetic
-  only).
-- Not sandboxed. This is actually convenient here: the `com.apple.security.
-  temporary-exception.mach-lookup.global-name` entitlement in
-  `DeskPad/DeskPad.entitlements` only matters under App Sandbox, so skipping
-  entitlements entirely sidesteps that.
-- macOS still prompts for **Screen Recording** permission the first time
-  `CGDisplayStream` starts (System Settings → Privacy & Security → Screen
-  Recording → enable it, then relaunch once).
-
-For a real, distributable, notarized build (asset catalog, entitlements,
-sandboxing, a real Developer ID), a full Xcode.app install and
-`DeskPad.xcodeproj` are required — there's no way around that for release
-builds.
+- A process started as a bare binary (not via `open`/Launch Services) gets no menu bar and
+  `NSApp.activate` is silently denied; always test the `.app`.
+- macOS does not ask for Screen Recording by itself when `CGDisplayStream` starts: without the
+  permission the stream just delivers nothing (blank window) and the app never appears in the
+  Screen Recording list. `ScreenViewController.viewDidLoad` therefore checks
+  `CGPreflightScreenCaptureAccess()`, calls `CGRequestScreenCaptureAccess()` (system prompt, lists
+  the app) and shows an explanation with a button to the right Settings pane in the window.
+  A relaunch is needed after granting.
 
 There is no unit test target in this project; verification is manual —
 either visually (ask the person to check), or headlessly via `osascript`

@@ -33,34 +33,50 @@ Windows are moved by the OS's own window drag, so no Accessibility permission is
 ### Resolution
 
 - The virtual display now starts at **a quarter of the host screen** (half the width, half the height — e.g. 840×525 on a 1680×1050 built-in screen), rendered at 2× so it stays sharp. The preview window opens at about a quarter of the screen as well, so the two match nearly 1:1.
-- New **Resolution** menu: presets from 1280×800 up to 5120×2160, plus *Match Built-in Display*. Switching takes effect immediately, no trip to System Settings needed.
+- New **Resolution** menu: presets from 1280×800 up to 5120×2160, plus *Match Built-in Display*. Switching takes effect immediately, no trip to System Settings needed. The resolution you pick is remembered; *Quarter of Built-in Display (default)* goes back to the default, which then follows your screen again.
 
 ### Other changes
 
 - The preview window is no longer raised merely because the cursor moved onto the virtual display; whether it is raised depends on the mode (see the table).
-- Options are not persisted; DeskPad starts with the defaults above each time.
-- The project can be built and run **without Xcode.app** (Command Line Tools are enough), see below.
+- Your settings are remembered between launches: the cursor mode, disconnecting the screen, and the resolution you pick.
+- The project can be built, packaged and released **without Xcode.app and without a paid Apple account**; see Installing below.
 
-## Using this fork
+## Installing this fork
 
-There are no prebuilt releases of the fork (the release binaries and the Homebrew cask in the original README below are the upstream app). Build it yourself.
+DeskPad needs macOS 13 or later and runs on Apple silicon and Intel Macs. It is **not notarized** (that requires a paid Apple Developer account), so macOS will not simply open a copy downloaded in the browser. The first option avoids that:
 
-### Building without Xcode
+**1. One command (recommended)** — installs the latest release to `/Applications` without any Gatekeeper prompt:
 
-`scripts/build-dev.sh` builds the sources through a throw-away Swift package, refreshes `~/DeskPad.app` in place, re-signs it and launches it. The one-time setup (the package, the app bundle skeleton, and a **stable code-signing identity**) is described in [`CLAUDE.md`](CLAUDE.md).
+```bash
+curl -fsSL https://raw.githubusercontent.com/lerch-florian/DeskPad-Seamless/main/scripts/install.sh | bash
+```
 
-The stable signing identity matters: with ad-hoc signing every rebuild looks like a brand-new app to macOS, so the Screen Recording permission has to be granted again after each build. Signing every build with the same (self-signed) certificate keeps the permission.
+(`curl` doesn't mark the download as "from the internet", which is the only thing Gatekeeper checks. Read [`scripts/install.sh`](scripts/install.sh) first if you like; it is short, needs no `sudo`, and verifies the app's signature.)
 
-DeskPad needs the **Screen Recording** permission (see Troubleshooting in the original README below). It needs no Accessibility permission.
+**2. Manual download** — get `DeskPad.zip` from the [Releases page](https://github.com/lerch-florian/DeskPad-Seamless/releases), unzip it and drag `DeskPad.app` to Applications. On first launch macOS refuses; open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the DeskPad message. (Or run `xattr -dr com.apple.quarantine /Applications/DeskPad.app` once.)
+
+**3. Build it yourself** — only the free Command Line Tools are needed (`xcode-select --install`), not Xcode:
+
+```bash
+git clone https://github.com/lerch-florian/DeskPad-Seamless.git && cd DeskPad-Seamless
+scripts/package-release.sh      # builds a universal dist/DeskPad.app and dist/DeskPad.zip
+```
+
+### First launch: Screen Recording permission
+
+macOS asks for the **Screen Recording** permission the first time (System Settings → Privacy & Security → Screen Recording → enable DeskPad), then DeskPad has to be started once more. Until it is granted the window shows a short explanation with a button that opens the right Settings page. It needs no Accessibility permission. Releases are signed with the same certificate every time, so the permission carries over when you update. Builds you make yourself are signed ad-hoc by default and need the permission again after each rebuild; the tip in [`CLAUDE.md`](CLAUDE.md) (a stable self-signed certificate) removes that for development.
+
+### Contributing
+
+- `scripts/build-dev.sh` rebuilds, signs and relaunches `~/DeskPad.app` for development; `scripts/package-release.sh` makes the release archive (see its header for signing options). [`CLAUDE.md`](CLAUDE.md) documents the architecture, the reasoning behind the non-obvious parts, the signing/distribution setup and how the behavior is tested headlessly.
+- A root `Package.swift` makes `swift build` work from a clone. The Xcode project is kept in step by hand (new files, bundle ID) but has not been built in Xcode. It still names the upstream author's signing team, so choose your own (a free Apple ID works) or "Sign to Run Locally".
 
 ### Caveats
 
-- `DeskPad.xcodeproj` has **not** been updated for the source files added in this fork, so it won't build them as is; the SwiftPM script is the supported way for now.
-- The dev build runs unsandboxed and without the asset catalog (no app icon, no coloured title bar). A signed, sandboxed release build with the project's entitlements has not been tried with the new features.
-- Tested on macOS 26 on a MacBook Pro (M1) with only the built-in display. Other display setups (several monitors, other resolutions) follow the same logic but are untested. The OS-level cursor clamping at the corner can't be measured with scripted events, so that is verified only by the arrangement read-back plus the software safety net.
+- Tested on macOS 26 on a MacBook Pro (M1) with only the built-in display. Other display setups (several monitors, other resolutions) follow the same logic but are untested. The Intel half of the universal binary builds but has not been run.
+- Whether macOS can carry the cursor diagonally through exactly the corner pixel when the screen is disconnected can't be measured with scripted events; the software safety net covers it.
 - Window dragging relies on the OS's standard title-bar drag; apps with a custom-drawn title bar were not tried.
-
-`CLAUDE.md` documents the architecture, the reasoning behind the non-obvious parts, and how the behavior is tested headlessly.
+- The app runs in the App Sandbox with the original project's entitlements; the cursor, drag, shake and shortcut features were verified to work that way.
 
 ---
 

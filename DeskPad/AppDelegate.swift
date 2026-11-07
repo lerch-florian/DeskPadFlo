@@ -75,12 +75,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let builtInSize = NSScreen.builtIn?.frame.size {
             menu.addItem(.separator())
+
+            let quarter = CGSize(width: (builtInSize.width / 2).rounded(.down), height: (builtInSize.height / 2).rounded(.down))
+            let defaultItem = NSMenuItem(
+                title: "Quarter of Built-in Display, default (\(Int(quarter.width)) × \(Int(quarter.height)))",
+                action: #selector(selectDefaultResolution(_:)),
+                keyEquivalent: ""
+            )
+            defaultItem.target = self
+            menu.addItem(defaultItem)
+
             menu.addItem(resolutionMenuItem(
                 title: "Match Built-in Display (\(Int(builtInSize.width)) × \(Int(builtInSize.height)))",
                 size: builtInSize
             ))
         }
         return menu
+    }
+
+    @objc private func selectDefaultResolution(_: NSMenuItem) {
+        store.dispatch(ScreenConfigurationAction.selectDefaultResolution)
     }
 
     private func resolutionMenuItem(title: String, size: CGSize) -> NSMenuItem {

@@ -3,7 +3,7 @@ import ReSwift
 
 // How the cursor moves between the real desktop and the virtual display. The jump
 // behavior the 60Hz watcher applies is derived from the selected mode.
-enum CursorMode: Equatable, CaseIterable {
+enum CursorMode: String, Equatable, CaseIterable {
     case seamless
     case auto
     case clickToEnter
@@ -61,8 +61,33 @@ struct MouseEdgeBehaviorState: Equatable {
 
     var jumpInEnabled: Bool { cursorMode.entersAutomatically }
 
+    // The Options menu settings are remembered between launches (UserDefaults); the
+    // defaults apply the first time, or if a stored value isn't recognised.
+    private enum DefaultsKey {
+        static let cursorMode = "cursorMode"
+        static let blockOSScreenConnection = "blockOSScreenConnection"
+    }
+
     static var initialState: MouseEdgeBehaviorState {
-        return MouseEdgeBehaviorState(cursorMode: .auto, blockOSScreenConnection: true)
+        let defaults = UserDefaults.standard
+        return MouseEdgeBehaviorState(
+            cursorMode: defaults.string(forKey: DefaultsKey.cursorMode).flatMap(CursorMode.init(rawValue:)) ?? .auto,
+            blockOSScreenConnection: defaults.object(forKey: DefaultsKey.blockOSScreenConnection) as? Bool ?? true
+        )
+    }
+
+    func save() {
+        let defaults = UserDefaults.standard
+        defaults.set(cursorMode.rawValue, forKey: DefaultsKey.cursorMode)
+        defaults.set(blockOSScreenConnection, forKey: DefaultsKey.blockOSScreenConnection)
+    }
+}
+
+// Writes the settings out whenever one of them changes.
+func mouseEdgeBehaviorPersistenceSideEffect() -> SideEffect {
+    return { action, _, getState in
+        guard action is MouseEdgeBehaviorAction else { return }
+        getState()?.mouseEdgeBehaviorState.save()
     }
 }
 

@@ -8,6 +8,32 @@ private var hasAppliedDefaultResolution = false
 enum ScreenConfigurationAction: Action {
     case set(resolution: CGSize, scaleFactor: CGFloat)
     case selectResolution(CGSize)
+    // Back to the default (a quarter of the host screen) and forget any chosen resolution.
+    case selectDefaultResolution
+}
+
+// The resolution picked from the Resolution menu, remembered between launches. Only an explicit
+// choice is stored; without one DeskPad starts at the default, which follows the host screen.
+private enum StoredResolution {
+    private static let widthKey = "resolutionWidth"
+    private static let heightKey = "resolutionHeight"
+
+    static var size: CGSize? {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: widthKey) != nil else { return nil }
+        let size = CGSize(width: defaults.double(forKey: widthKey), height: defaults.double(forKey: heightKey))
+        return size.width > 0 && size.height > 0 ? size : nil
+    }
+
+    static func save(_ size: CGSize) {
+        UserDefaults.standard.set(Double(size.width), forKey: widthKey)
+        UserDefaults.standard.set(Double(size.height), forKey: heightKey)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: widthKey)
+        UserDefaults.standard.removeObject(forKey: heightKey)
+    }
 }
 
 func screenConfigurationSideEffect() -> SideEffect {
@@ -32,7 +58,7 @@ func screenConfigurationSideEffect() -> SideEffect {
 
                 if hasAppliedDefaultResolution == false {
                     hasAppliedDefaultResolution = true
-                    if let override = applyDefaultResolutionIfNeeded(displayID: displayID, currentScreen: screen) {
+                    if let override = applyInitialResolution(displayID: displayID, currentScreen: screen) {
                         resolution = override.resolution
                         scaleFactor = override.scaleFactor
                     }
@@ -54,7 +80,19 @@ func screenConfigurationSideEffect() -> SideEffect {
             let displayID = getState()?.screenConfigurationState.displayID,
             let result = switchDisplayMode(displayID: displayID, targetLogicalSize: targetSize)
         {
+            StoredResolution.save(targetSize)
             dispatch(ScreenConfigurationAction.set(resolution: result.resolution, scaleFactor: result.scaleFactor))
+        }
+
+        if
+            case ScreenConfigurationAction.selectDefaultResolution = action,
+            let displayID = getState()?.screenConfigurationState.displayID,
+            let screen = NSScreen.screens.first(where: { $0.displayID == displayID })
+        {
+            StoredResolution.clear()
+            if let result = applyDefaultResolutionIfNeeded(displayID: displayID, currentScreen: screen) {
+                dispatch(ScreenConfigurationAction.set(resolution: result.resolution, scaleFactor: result.scaleFactor))
+            }
         }
     }
 }
@@ -113,6 +151,19 @@ private func cornerOnlyOrigin(for size: CGSize, avoiding others: [CGRect]) -> CG
         }
     }
     return nil
+}
+
+// The resolution to start with: the one chosen last time if there is one and this display
+// still offers it, otherwise the default.
+private func applyInitialResolution(
+    displayID: CGDirectDisplayID,
+    currentScreen: NSScreen
+) -> (resolution: CGSize, scaleFactor: CGFloat)? {
+    if let stored = StoredResolution.size {
+        if currentScreen.frame.size == stored { return nil }
+        if let result = switchDisplayMode(displayID: displayID, targetLogicalSize: stored) { return result }
+    }
+    return applyDefaultResolutionIfNeeded(displayID: displayID, currentScreen: currentScreen)
 }
 
 // Switches the virtual display to its default resolution the first time it appears: a
