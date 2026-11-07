@@ -48,17 +48,17 @@ DeskPad needs macOS 13 or later and runs on Apple silicon and Intel Macs. It is 
 **1. One command (recommended)** — installs the latest release to `/Applications` without any Gatekeeper prompt:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lerch-florian/DeskPad-Seamless/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lerch-florian/DeskPadFlo/main/scripts/install.sh | bash
 ```
 
 (`curl` doesn't mark the download as "from the internet", which is the only thing Gatekeeper checks. Read [`scripts/install.sh`](scripts/install.sh) first if you like; it is short, needs no `sudo`, and verifies the app's signature.)
 
-**2. Manual download** — get `DeskPad.zip` from the [Releases page](https://github.com/lerch-florian/DeskPad-Seamless/releases), unzip it and drag `DeskPad.app` to Applications. On first launch macOS refuses; open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the DeskPad message. (Or run `xattr -dr com.apple.quarantine /Applications/DeskPad.app` once.)
+**2. Manual download** — get `DeskPad.zip` from the [Releases page](https://github.com/lerch-florian/DeskPadFlo/releases), unzip it and drag `DeskPad.app` to Applications. On first launch macOS refuses; open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the DeskPad message. (Or run `xattr -dr com.apple.quarantine /Applications/DeskPad.app` once.)
 
 **3. Build it yourself** — only the free Command Line Tools are needed (`xcode-select --install`), not Xcode:
 
 ```bash
-git clone https://github.com/lerch-florian/DeskPad-Seamless.git && cd DeskPad-Seamless
+git clone https://github.com/lerch-florian/DeskPadFlo.git && cd DeskPadFlo
 scripts/package-release.sh      # builds a universal dist/DeskPad.app and dist/DeskPad.zip
 ```
 

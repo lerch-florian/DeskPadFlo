@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs the latest DeskPad release without Gatekeeper's "unidentified developer" prompt:
 #
-#   curl -fsSL https://raw.githubusercontent.com/lerch-florian/DeskPad-Seamless/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/lerch-florian/DeskPadFlo/main/scripts/install.sh | bash
 #
 # DeskPad isn't notarized (that needs a paid Apple Developer account). Gatekeeper only checks
 # files carrying the quarantine flag that browsers attach to downloads; curl doesn't set it, so
@@ -11,7 +11,7 @@
 # DESKPAD_NO_OPEN=1.
 set -euo pipefail
 
-ZIP_URL=${DESKPAD_ZIP_URL:-https://github.com/lerch-florian/DeskPad-Seamless/releases/latest/download/DeskPad.zip}
+ZIP_URL=${DESKPAD_ZIP_URL:-https://github.com/lerch-florian/DeskPadFlo/releases/latest/download/DeskPad.zip}
 APPS_DIR=${DESKPAD_APPS_DIR:-/Applications}
 
 if [ ! -w "$APPS_DIR" ]; then
