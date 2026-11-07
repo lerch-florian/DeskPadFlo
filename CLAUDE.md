@@ -241,7 +241,7 @@ notarization. Everything below follows from that.
 - `package-release.sh [version]` — universal (arm64 + x86_64) `dist/DeskPad.app` and
   `dist/DeskPad.zip`. SwiftPM's `--arch a --arch b` needs Xcode's build engine (`xcbuild`),
   so it builds each architecture with `--triple` and merges with `lipo`. Signs with
-  `SIGN_IDENTITY` (ad-hoc if unset) and the project's entitlements.
+  the release certificate when available (ad-hoc otherwise, with a warning; see Signing) and the project's entitlements.
 - `install.sh` — the end-user installer (see below).
 
 Bundle ID is `io.github.lerch-florian.DeskPad` (not upstream's `com.stengo.DeskPad`, so the
@@ -255,14 +255,48 @@ that the binary's content hash, so every rebuild/release looks like a brand-new 
 entries in System Settings and a re-grant after every update. Signing every build with the same
 self-signed certificate makes it `identifier "…" and certificate leaf = H"…"`, which is stable
 across builds — and that holds on end users' machines too, they don't need to trust the
-certificate. So releases should be built with `SIGN_IDENTITY="DeskPad Dev Signing"` (the
-maintainer's certificate, whose private key must be kept; losing it only costs users one
-re-grant). `security find-identity -v -p codesigning` may report 0 valid identities for a plain
-self-signed certificate (it fails trust evaluation), but `codesign --sign "<name>"` still finds
-and uses it by name. Creating the certificate (openssl → `.p12` → import) writes to the login
-keychain, which needs the person's own go-ahead or a double-click on the `.p12`; the
-`.p12`'s *export* password is what Keychain Access asks for first, not the Mac password. If TCC is
-a mess from earlier ad-hoc builds: `tccutil reset ScreenCapture io.github.lerch-florian.DeskPad`.
+certificate. (Verified: after several rebuilds with the certificate the permission, once granted,
+never needed granting again.)
+
+**The release identity — never change it casually.** Every release, and the maintainer's dev
+builds, must carry exactly this:
+
+| | |
+| --- | --- |
+| Bundle ID | `io.github.lerch-florian.DeskPad` |
+| Certificate | `DeskPad Dev Signing` (self-signed, code-signing EKU, RSA 2048, valid 2026-09-18 to 2036-09-15) |
+| Leaf SHA-1 | `dcf636eacacdd33031da32ad1ac66024bd9a9f5e` (public; not a secret) |
+| Expected requirement | `identifier "io.github.lerch-florian.DeskPad" and certificate leaf = H"dcf636eacacdd33031da32ad1ac66024bd9a9f5e"` |
+
+`scripts/package-release.sh` enforces this. It uses the certificate automatically when it is in the
+keychain, checks the signed app's requirement against the pinned fingerprint (`RELEASE_CERT_HASH`
+in the script) and **aborts on a mismatch**; it prints "AD-HOC … do NOT publish" when it had to
+fall back to ad-hoc signing (contributors without the certificate). Before `gh release create`,
+the "Signed as:" line must say "release identity … OK to publish". Replacing the certificate
+on purpose needs `ALLOW_NEW_IDENTITY=1` and a new pinned fingerprint, and costs every user one
+re-grant (say so in the release notes). Check any built app by hand with
+`codesign -dr - <app>`.
+
+What can change the identity unintentionally, and so makes macOS ask again: a different bundle
+ID, a different (or lost) certificate, an ad-hoc build, or a build someone made themselves
+(that is a different identity from the downloaded release and gets its own entry).
+
+**Keep the certificate safe.** Its private key lives only in the maintainer's login keychain. It
+should be exported once (Keychain Access → "DeskPad Dev Signing" → export as `.p12` with the
+maintainer's own password) and stored in a safe place; without it a new Mac, or a wiped keychain,
+means a new identity. The `.p12` created during setup sat in a temporary scratch folder with a
+throwaway password and must not be relied upon.
+
+**How it was created** (for a rebuild after loss, which means a new pinned fingerprint): an
+`openssl req -x509 -newkey rsa:2048 -nodes -days 3650` with a config of `CN = DeskPad Dev Signing`,
+`basicConstraints = critical,CA:false`, `keyUsage = critical,digitalSignature`,
+`extendedKeyUsage = critical,codeSigning`; then `openssl pkcs12 -export` and a keychain import
+(`security import … -T /usr/bin/codesign`, or a double-click on the `.p12`: the `.p12`'s *export*
+password is what Keychain Access asks for first, not the Mac password). Writing to the login
+keychain needs the person's own go-ahead. `security find-identity -v -p codesigning` reports 0
+valid identities for such a certificate (it fails trust evaluation), but `codesign --sign "<name>"`
+still finds and uses it by name. Other apps' stale TCC entries:
+`tccutil reset ScreenCapture io.github.lerch-florian.DeskPad` resets this app's.
 
 ### Gatekeeper and how users get the app
 
