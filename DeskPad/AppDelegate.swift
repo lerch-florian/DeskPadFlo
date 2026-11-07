@@ -7,6 +7,7 @@ enum AppDelegateAction: Action {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
+    private var clickMonitor: Any?
 
     func applicationDidFinishLaunching(_: Notification) {
         let viewController = ScreenViewController()
@@ -46,7 +47,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.items = [mainMenuItem, resolutionMenuItem, optionsMenuItem]
         NSApplication.shared.mainMenu = mainMenu
 
+        registerEmergencyHotKey()
+        installRaiseOnVirtualClickMonitor()
         store.dispatch(AppDelegateAction.didFinishLaunching)
+    }
+
+    // Clicks on the virtual display land in other apps' windows, so DeskPad only sees
+    // them through a global monitor (mouse events need no extra permission). Bring the
+    // preview window forward on such a click, without activating DeskPad, so the click's
+    // target keeps keyboard focus.
+    private func installRaiseOnVirtualClickMonitor() {
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            guard
+                store.state.mouseEdgeBehaviorState.cursorMode.raisesWindowOnVirtualClick,
+                let displayID = store.state.screenConfigurationState.displayID,
+                let virtualScreen = NSScreen.screens.first(where: { $0.displayID == displayID }),
+                NSMouseInRect(NSEvent.mouseLocation, virtualScreen.frame, false)
+            else { return }
+            self?.window.orderFrontRegardless()
+        }
     }
 
     private func makeResolutionMenu() -> NSMenu {
@@ -79,35 +98,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeOptionsMenu() -> NSMenu {
         let menu = NSMenu(title: "Options")
         menu.delegate = self
-        // The foreground item is enabled/disabled by hand in menuNeedsUpdate.
-        menu.autoenablesItems = false
 
-        let jumpOutItem = NSMenuItem(title: "Jump Cursor Out at Screen Edge", action: #selector(toggleJumpOut(_:)), keyEquivalent: "")
-        jumpOutItem.target = self
-        menu.addItem(jumpOutItem)
+        let header = NSMenuItem(title: "Cursor Mode", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        for mode in CursorMode.allCases {
+            let item = NSMenuItem(title: mode.title, action: #selector(selectCursorMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode
+            item.toolTip = mode.summary
+            item.indentationLevel = 1
+            menu.addItem(item)
+        }
 
-        let jumpInItem = NSMenuItem(title: "Jump Cursor In at Window Edge", action: #selector(toggleJumpIn(_:)), keyEquivalent: "")
-        jumpInItem.target = self
-        menu.addItem(jumpInItem)
+        menu.addItem(.separator())
 
-        let foregroundItem = NSMenuItem(title: "Only Jump In When DeskPad Is in Foreground", action: #selector(toggleJumpInOnlyWhenForeground(_:)), keyEquivalent: "")
-        foregroundItem.target = self
-        foregroundItem.indentationLevel = 1
-        menu.addItem(foregroundItem)
+        let blockItem = NSMenuItem(title: "Disconnect Screen from OS Arrangement", action: #selector(toggleBlockOSScreenConnection(_:)), keyEquivalent: "")
+        blockItem.target = self
+        blockItem.toolTip = "Arranges the virtual screen so it touches the real screens only at a corner, so macOS can't "
+            + "carry the cursor between them. Only the selected mode's own jumps move the cursor across."
+        menu.addItem(blockItem)
+
+        menu.addItem(.separator())
+
+        // The same shortcut is registered system-wide in registerEmergencyHotKey().
+        let emergencyItem = NSMenuItem(title: "Emergency: Move Cursor to Main Screen", action: #selector(emergencyCursorReset(_:)), keyEquivalent: "h")
+        emergencyItem.keyEquivalentModifierMask = [.command, .option, .shift]
+        emergencyItem.target = self
+        menu.addItem(emergencyItem)
 
         return menu
     }
 
-    @objc private func toggleJumpOut(_: NSMenuItem) {
-        store.dispatch(MouseEdgeBehaviorAction.setJumpOutEnabled(!store.state.mouseEdgeBehaviorState.jumpOutEnabled))
+    @objc private func selectCursorMode(_ sender: NSMenuItem) {
+        guard let mode = sender.representedObject as? CursorMode else { return }
+        store.dispatch(MouseEdgeBehaviorAction.setCursorMode(mode))
     }
 
-    @objc private func toggleJumpIn(_: NSMenuItem) {
-        store.dispatch(MouseEdgeBehaviorAction.setJumpInEnabled(!store.state.mouseEdgeBehaviorState.jumpInEnabled))
+    @objc private func toggleBlockOSScreenConnection(_: NSMenuItem) {
+        store.dispatch(MouseEdgeBehaviorAction.setBlockOSScreenConnection(!store.state.mouseEdgeBehaviorState.blockOSScreenConnection))
     }
 
-    @objc private func toggleJumpInOnlyWhenForeground(_: NSMenuItem) {
-        store.dispatch(MouseEdgeBehaviorAction.setJumpInOnlyWhenForeground(!store.state.mouseEdgeBehaviorState.jumpInOnlyWhenForeground))
+    @objc private func emergencyCursorReset(_: NSMenuItem) {
+        jumpCursorToMainScreenCenter()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
@@ -117,11 +150,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
-        guard menu.title == "Options", menu.items.count == 3 else { return }
+        guard menu.title == "Options" else { return }
         let behavior = store.state.mouseEdgeBehaviorState
-        menu.items[0].state = behavior.jumpOutEnabled ? .on : .off
-        menu.items[1].state = behavior.jumpInEnabled ? .on : .off
-        menu.items[2].state = behavior.jumpInOnlyWhenForeground ? .on : .off
-        menu.items[2].isEnabled = behavior.jumpInEnabled
+        for item in menu.items {
+            if let mode = item.representedObject as? CursorMode {
+                item.state = mode == behavior.cursorMode ? .on : .off
+            } else if item.action == #selector(toggleBlockOSScreenConnection(_:)) {
+                item.state = behavior.blockOSScreenConnection ? .on : .off
+            }
+        }
     }
 }

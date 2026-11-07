@@ -19,10 +19,10 @@ under `DeskPad/Backend/`, one subfolder per slice:
   (`MouseLocationAction.requestMove`, via `CGDisplayMoveCursorToPoint`), and
   the two-way edge-crossing behavior (`mouseEdgeCrossingSideEffect`): warping
   the cursor out of the virtual display onto the mirrored point in the
-  preview window, and/or into the virtual display when the cursor reaches the
-  preview window (via `CGWarpMouseCursorPosition`). Each direction is
-  independently toggled by `MouseEdgeBehaviorState` (see below) and can be
-  turned on/off from the "Options" menu.
+  preview window, and into the virtual display when the cursor moves onto the
+  preview window (via `CGWarpMouseCursorPosition`). What it does is derived
+  from the selected `CursorMode` in `MouseEdgeBehaviorState` (see below),
+  chosen in the "Options" menu.
   - Exit fires whenever the cursor, while on the virtual display, is within a
     small margin of its edge — this is reliable even for fast movement
     because the OS clamps cursor motion at a real display's own bounds when
@@ -41,7 +41,15 @@ under `DeskPad/Backend/`, one subfolder per slice:
     edge wins.
   - Entry only counts if the preview window is the topmost window under the
     cursor (`isPreviewWindowVisible`, via `CGWindowListCopyWindowInfo`, only
-    evaluated on a potential entry — it's too slow to run at 60Hz).
+    evaluated on a potential entry — it's too slow to run at 60Hz). Modes
+    that don't enter automatically skip the check entirely.
+  - Seamless mode additionally leaves *where the virtual screen isn't
+    visible*: while on the virtual display the cursor is drawn inside the
+    preview window at the point its position maps to, and when another window
+    covers that point `coveredExitTarget` warps the real cursor to exactly that
+    point (onto the covering window) — no visible movement. This runs every
+    tick, so it reads a cached window list (`frontToBackWindows`, max age
+    `coveredCheckWindowListMaxAge` = 0.1s) instead of querying afresh.
   - Entry fires on a genuine outside→inside transition into the preview
     window's content frame (tracked tick-to-tick), *not* proximity to its
     edge — nothing clamps cursor motion at an ordinary window's boundary, so
@@ -62,9 +70,72 @@ under `DeskPad/Backend/`, one subfolder per slice:
   - Every jump is a cursor warp, and macOS freezes hardware mouse input for
     0.25s after one by default; the cursor visibly stuck. Fixed by setting
     `localEventsSuppressionInterval = 0` on a retained `CGEventSource`.
-- `MouseEdgeBehavior/` — two independent booleans, `jumpOutEnabled` (default
-  `true`, preserves original behavior) and `jumpInEnabled` (default `false`,
-  since it's new — click-to-enter always works regardless of this toggle).
+- `MouseEdgeBehavior/` — `cursorMode` (a `CursorMode`, default `.auto`) and
+  `blockOSScreenConnection` (default `true`). Every mode leaves at the virtual
+  display's borders; the modes differ in what the `CursorMode` properties say:
+  - `seamless`: enters automatically onto any visible part of the preview
+    window, also leaves where the mapped point is covered
+    (`exitsWhereCovered`), never raises the preview window (`raisesWindowOnEntry`
+    and `raisesWindowOnVirtualClick` are false, so the click monitor in
+    `AppDelegate` is also off).
+  - `auto`: enters automatically, raises the preview window on entry (the
+    entry branch calls `AppDelegate.window.orderFrontRegardless()`), and on a
+    click on the virtual display.
+  - `clickToEnter`: no automatic entry (`entersAutomatically` false); only the
+    click gesture in `ScreenViewController` enters.
+  `blockOSScreenConnection` ("Disconnect Screen from OS Arrangement") removes the OS's
+  own connection between the virtual display and the real ones, via the display
+  *arrangement* (`arrangeVirtualDisplay` in `ScreenConfigurationSideEffect.swift`):
+  `CGConfigureDisplayOrigin` does work on the virtual display. Findings: macOS snaps any
+  *gap* shut (it won't keep displays apart), but accepts a position where the virtual
+  display touches the real ones **only at a corner** (`cornerOnlyOrigin`, bottom-right
+  of the arrangement preferred), which leaves no shared edge for the cursor to cross.
+  Off puts it back beside the main display (macOS' default). The arrangement is
+  re-applied on every `didChangeScreenParametersNotification` (display appears, resolution
+  change) and when the option is toggled; it's a no-op when already in place. Everything
+  else is arrangement-independent (all geometry comes from `NSScreen` frames), so with the
+  display at the bottom-right every edge is a clamped, unneighbored edge for the exit.
+  The older software hold (undoing an OS crossing that isn't one of our own warps) stays
+  active while the option is on, as a safety net: a path through exactly the corner pixel
+  might still slip across, and scripted events can't tell (see testing notes — synthetic
+  absolute positions bypass the window server's edge clamping, so the OS's own clamping
+  can't be measured headlessly; only the arrangement read-back via `CGDisplayBounds` can).
+  Any entry (`requestMove`) disarms exit until the cursor is clear of the edge, whether
+  it came from an auto jump or a click.
+  Window handling is described next.
+- `MouseLocation/WindowDrag.swift` — window list + drag tracking. Windows are moved
+  *by the OS's own drag*, not by us: the window server keeps dragging the grabbed
+  window by the cursor's position, so a cursor warp while the button is held carries
+  it along (no Accessibility permission needed). What's needed around that:
+  - `WindowDragTracker` finds the window grabbed at mouse-down (rising edge of
+    `NSEvent.pressedMouseButtons`, polled in the 60Hz tick) and calls it *dragged*
+    once its bounds origin has moved. `isPreviewWindowVisible` ignores the dragged
+    window; otherwise it always covers the preview and nothing could be dragged in.
+  - After every warp with the left button down, `nudgeDrag` posts a
+    `leftMouseDragged` event at the destination, so the window follows at once rather
+    than on the next hardware movement (verified: without further events the window
+    is already on the other screen).
+  - On an exit while a window is being dragged, the preview is ordered *below* that
+    window (`order(.below, relativeTo:)` works across processes). Entering and clicking
+    raise the preview, so without this the dragged window lands behind it with its
+    title bar under the preview, and the next grab drags the preview instead.
+  - Click to Enter only: dragging a window over the visible preview enters on a shake
+    (`ShakeDetector`: ≥3 direction reversals of ≥35pt within 0.8s) or on cmd+shift+D.
+    cmd+shift+D is a common shortcut elsewhere, so it is registered system-wide only
+    while a foreign-window drag is held in this mode (`setDragEntryHotKeyRegistered`,
+    toggled each tick) and unregistered otherwise. The single Carbon hotkey handler
+    dispatches on `EventHotKeyID` (emergency reset vs. drag entry).
+  - Dragging the preview window *itself* (mouse-down on it, `isHoldingOwnWindow`) must
+    not take part in any jump: the window moves under the cursor, so an entry (the stored
+    window frame lags the real one by a few ticks, so the cursor briefly counts as
+    "over the preview") carries it into the virtual display, and the guard below then
+    threw it back — it ended up bouncing between the screen corners. While held, the
+    tick returns early (`holdPreviewDragOnRealDisplays`) and, if the cursor crossed onto
+    the virtual display, warps it back to its last real position.
+  - `ScreenViewController.keepWindowOffVirtualDisplay`: the preview window's centre is
+    never allowed onto the virtual display (it would be invisible there). It is clamped
+    to the real displays' edge on `windowDidMove` — a soft wall, not a snap back inside,
+    which showed as a visible jump.
 - `ScreenConfiguration/` — resolution/scale-factor/displayID of the virtual
   display. `AvailableResolutions.swift` is the single source of truth for
   the preset resolution list, shared between the modes declared to
@@ -82,10 +153,18 @@ under `DeskPad/Backend/`, one subfolder per slice:
     When both a native (1x) and HiDPI-scaled (2x) mode exist for the same
     logical size (they share the same declared `CGVirtualDisplayMode` pixel
     value but differ in scale), it picks the one with the larger
-    `pixelWidth`, i.e. prefers the crisp Retina variant. Used by: matching
-    the built-in display's resolution once on first launch
-    (`applyBuiltInResolutionIfNeeded`), and the "Resolution" menu's
-    `ScreenConfigurationAction.selectResolution`. Dispatches the *known*
+    `pixelWidth`, i.e. prefers the crisp Retina variant. Used by: the default
+    resolution once on first launch (`applyDefaultResolutionIfNeeded`), and
+    the "Resolution" menu's `ScreenConfigurationAction.selectResolution`.
+    The default is a quarter of the host (built-in) screen — half its width and
+    half its height, e.g. 840×525 for 1680×1050 — so it shows nearly 1:1 in the
+    preview window, which also opens at about a quarter of the screen. That
+    half-size mode exists because every declared `CGVirtualDisplayMode` (w×h)
+    yields three modes: native w×h, HiDPI w×h (pixels 2w×2h) and HiDPI
+    w/2×h/2 (pixels w×h); declaring the host's own size (done in
+    `ScreenViewController`) therefore provides the sharp quarter-size one. If the
+    host size doesn't halve into an available mode it falls back to matching the
+    host exactly. Dispatches the *known*
     target resolution immediately after a successful switch rather than
     waiting for a follow-up `didChangeScreenParametersNotification` — that
     notification is not reliable enough to depend on (this was a real bug:
@@ -118,8 +197,9 @@ the app.
 `AppDelegate.swift` builds the menu bar: besides the app menu (Quit), a
 "Resolution" menu (all `availableResolutions` entries plus a dynamic "Match
 Built-in Display" entry, each dispatching
-`ScreenConfigurationAction.selectResolution`) and an "Options" menu (the two
-`MouseEdgeBehaviorAction` toggles, checkmarks refreshed via
+`ScreenConfigurationAction.selectResolution`) and an "Options" menu (the three
+`CursorMode`s with their summaries as tooltips, plus the "Disconnect Screen
+from OS Arrangement" toggle and the emergency cursor reset; checkmarks refreshed via
 `NSMenuDelegate.menuNeedsUpdate` rather than a full ReSwift subscription).
 
 `CGVirtualDisplayPrivate.h` is a hand-written header declaring the private
@@ -265,6 +345,11 @@ APIs directly (e.g. `CGGetActiveDisplayList` + `CGDisplayBounds` /
 `CGWarpMouseCursorPosition` + `CGEventCreate(nil)!.location` to simulate
 cursor movement and confirm where it ends up) — this caught real bugs (see
 architecture notes above) that a build-only check would have missed.
+Drag tests can be scripted too: post `CGEvent` mouse-down / `leftMouseDragged` /
+mouse-up through `.cghidEventTap` against a window with a plain title bar (TextEdit;
+Finder's toolbar doesn't drag). Always send *relative* movement (each step = the
+cursor's actual position + delta): absolute positions along a fixed line drag the
+cursor straight back after every warp and make entries look broken.
 
 ## Conventions
 

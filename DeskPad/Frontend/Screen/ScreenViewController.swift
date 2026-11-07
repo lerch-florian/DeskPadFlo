@@ -64,9 +64,6 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
             view.window?.backgroundColor = isWindowHighlighted
                 ? NSColor(named: "TitleBarActive")
                 : NSColor(named: "TitleBarInactive")
-            if isWindowHighlighted {
-                view.window?.orderFrontRegardless()
-            }
         }
 
         if
@@ -107,7 +104,35 @@ class ScreenViewController: SubscriberViewController<ScreenViewData>, NSWindowDe
     }
 
     func windowDidMove(_: Notification) {
+        keepWindowOffVirtualDisplay()
         dispatchWindowContentFrame()
+    }
+
+    // The virtual display has no monitor, so a preview window that ends up on it is
+    // invisible — and it would mirror itself. Dragging the window across a display edge
+    // that macOS connects, or flicking it there, can carry it over. So its centre is
+    // never allowed onto the virtual display: it stops at the edge of the real displays
+    // like at a wall (clamping, not snapping back, so there's no visible jump).
+    private func keepWindowOffVirtualDisplay() {
+        guard
+            let window = view.window,
+            let displayID = store.state.screenConfigurationState.displayID,
+            let virtualScreen = NSScreen.screens.first(where: { $0.displayID == displayID }),
+            NSMouseInRect(CGPoint(x: window.frame.midX, y: window.frame.midY), virtualScreen.frame, false)
+        else { return }
+
+        let realFrames = NSScreen.screens.filter { $0.displayID != displayID }.map(\.frame)
+        guard var realBounds = realFrames.first else { return }
+        for frame in realFrames.dropFirst() {
+            realBounds = realBounds.union(frame)
+        }
+
+        // Centre kept one point inside the real displays' bounds.
+        let size = window.frame.size
+        window.setFrameOrigin(CGPoint(
+            x: min(max(window.frame.minX, realBounds.minX - size.width / 2 + 1), realBounds.maxX - size.width / 2 - 1),
+            y: min(max(window.frame.minY, realBounds.minY - size.height / 2 + 1), realBounds.maxY - size.height / 2 - 1)
+        ))
     }
 
     func windowDidResize(_: Notification) {
