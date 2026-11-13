@@ -23,6 +23,12 @@ func frontToBackWindows(maxAge: TimeInterval) -> [WindowSnapshot]? {
     guard let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
         return nil
     }
+    var displayBounds: [CGRect] = []
+    var displayCount: UInt32 = 0
+    var displayIDs = [CGDirectDisplayID](repeating: 0, count: 16)
+    if CGGetActiveDisplayList(16, &displayIDs, &displayCount) == .success {
+        displayBounds = displayIDs.prefix(Int(displayCount)).map { CGDisplayBounds($0) }
+    }
     let windows: [WindowSnapshot] = infos.compactMap { window in
         guard
             let layer = window[kCGWindowLayer as String] as? Int, layer >= 0,
@@ -32,6 +38,15 @@ func frontToBackWindows(maxAge: TimeInterval) -> [WindowSnapshot]? {
             let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
             let bounds = CGRect(dictionaryRepresentation: boundsDict)
         else { return nil }
+        // A floating/overlay window (layer > 0) that spans a whole display is a transparent
+        // overlay, not content the user could be looking at (the ChatGPT app keeps one over
+        // the entire screen at all times, as the Dock does). The window list can't tell a
+        // transparent window from an opaque one (alpha is the window-level alpha), and
+        // counting it would make it "cover" the preview everywhere. Normal windows (layer 0),
+        // including full-screen apps, are unaffected.
+        if layer > 0, displayBounds.contains(where: { bounds.contains($0.insetBy(dx: 1, dy: 1)) }) {
+            return nil
+        }
         return WindowSnapshot(
             number: window[kCGWindowNumber as String] as? Int ?? -1,
             bounds: bounds,
